@@ -10,7 +10,7 @@ OFFENSE_CODES_URL = "https://drive.google.com/uc?id=1RoXGLR85jhnttDGUd0BAJD9xX6t
 
 @st.cache_data
 def load_crime():
-    return pd.read_csv(CRIME_URL)
+    return pd.read_csv(CRIME_URL, encoding="latin-1")
 
 
 @st.cache_data
