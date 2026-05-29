@@ -27,6 +27,32 @@ The following census tables are used:
 - School enrollment
 - Vehicles per household
 
+### Sample census tables
+
+**Age distribution**
+
+| neighborhood | total_pop | median_age | % age 20–34 | % age 65+ |
+|---|---|---|---|---|
+| Allston | 19,363 | 26 | 67.6% | 3.4% |
+| Back Bay | 18,176 | 33 | 41.3% | 14.5% |
+| Beacon Hill | 9,751 | 32 | 48.8% | 12.3% |
+
+**Household income**
+
+| neighborhood | median_hh_income | % under $15k | % $150k+ |
+|---|---|---|---|
+| Allston | $46,983 | 22.5% | 8.3% |
+| Back Bay | $102,071 | 14.3% | 34.7% |
+| Beacon Hill | $98,069 | 10.7% | 31.7% |
+
+**Educational attainment** (residents 25+)
+
+| neighborhood | % less than HS | % HS grad | % bachelor's+ |
+|---|---|---|---|
+| Allston | 6.8% | 9.3% | 71.9% |
+| Back Bay | 2.3% | 4.9% | 85.0% |
+| Beacon Hill | 2.3% | 2.2% | 89.8% |
+
 ## Data merge
 
 Crime records use BPD district codes (e.g. D14, C11) while census data is organized by neighborhood. To join them, each crime record's lat/long is matched to a Boston neighborhood polygon using a point-in-polygon spatial join (geopandas + [City of Boston neighborhood boundaries GeoJSON](https://data.boston.gov/dataset/bpda-neighborhood-boundaries)).
