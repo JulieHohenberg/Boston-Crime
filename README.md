@@ -7,6 +7,12 @@ Data visualization project exploring crime patterns in Boston (2015–2018) alon
 **Crime data** — [Crimes in Boston, Kaggle (AnalyzeBoston)](https://www.kaggle.com/datasets/AnalyzeBoston/crimes-in-boston?resource=download)  
 Incident-level crime records from the Boston Police Department, covering 2015–2018. Includes offense type, district, date/time, and lat/long. Licensed under [CC0: Public Domain](https://creativecommons.org/publicdomain/zero/1.0/).
 
+| INCIDENT_NUMBER | OFFENSE_CODE | OFFENSE_CODE_GROUP | DISTRICT | OCCURRED_ON_DATE | Lat | Long |
+|---|---|---|---|---|---|---|
+| I182070945 | 619 | Larceny | D14 | 2018-09-02 13:00:00 | 42.357791 | -71.139371 |
+| I182070943 | 1402 | Vandalism | C11 | 2018-08-21 00:00:00 | 42.306821 | -71.060300 |
+| I182070941 | 3410 | Towed | D4 | 2018-09-03 19:27:00 | 42.346589 | -71.072429 |
+
 **Neighborhood demographics** — [City of Boston Neighborhood Demographics, Analyze Boston](https://data.boston.gov/dataset/neighborhood-demographics/resource/e684798f-e175-4ab1-8f70-ed80e4e260cc)  
 American Community Survey (ACS) 2013–2017 5-year estimates at the Boston neighborhood level. Licensed under [Open Data Commons PDDL](https://opendatacommons.org/licenses/pddl/).
 
