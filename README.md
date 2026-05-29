@@ -26,3 +26,25 @@ The following census tables are used:
 - Race and ethnicity
 - School enrollment
 - Vehicles per household
+
+## Data merge
+
+Crime records use BPD district codes (e.g. D14, C11) while census data is organized by neighborhood. To join them, each crime record's lat/long is matched to a Boston neighborhood polygon using a point-in-polygon spatial join (geopandas + [City of Boston neighborhood boundaries GeoJSON](https://data.boston.gov/dataset/bpda-neighborhood-boundaries)).
+
+**Before — crime.csv (district only)**
+
+| INCIDENT_NUMBER | OFFENSE_CODE_GROUP | DISTRICT | Lat | Long |
+|---|---|---|---|---|
+| I182070945 | Larceny | D14 | 42.357791 | -71.139371 |
+| I182070943 | Vandalism | C11 | 42.306821 | -71.060300 |
+| I182070941 | Towed | D4 | 42.346589 | -71.072429 |
+
+**After — neighborhood assigned via spatial join**
+
+| INCIDENT_NUMBER | OFFENSE_CODE_GROUP | DISTRICT | Lat | Long | neighborhood |
+|---|---|---|---|---|---|
+| I182070945 | Larceny | D14 | 42.357791 | -71.139371 | Brighton |
+| I182070943 | Vandalism | C11 | 42.306821 | -71.060300 | Dorchester |
+| I182070941 | Towed | D4 | 42.346589 | -71.072429 | South End |
+
+The `neighborhood` column now links crime records to any of the 15 census tables by neighborhood name. Lat/Long are preserved for mapping.
