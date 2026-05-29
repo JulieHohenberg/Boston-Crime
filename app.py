@@ -27,14 +27,65 @@ def _nbhd(df, col_names):
 
 # ── Crime loaders ────────────────────────────────────────────────────────────────
 
+BOSTON_NEIGHBORHOODS_URL = (
+    "https://data.boston.gov/dataset/bf1a7b50-4c72-4637-b0fa-11d632e3aff1"
+    "/resource/e5849875-a6f6-4c9c-9d8a-5048b0fbd03e"
+    "/download/boston_neighborhood_boundaries.geojson"
+)
+
+
 @st.cache_data
 def load_crime():
-    return pd.read_csv(CRIME_URL, encoding="latin-1")
+    import requests, io, geopandas as gpd
+
+    df = pd.read_csv(CRIME_URL, encoding="latin-1")
+    df = df.sample(n=10_000, random_state=42).reset_index(drop=True)
+
+    # Load neighborhood polygons
+    r = requests.get(BOSTON_NEIGHBORHOODS_URL)
+    r.raise_for_status()
+    neighborhoods = gpd.read_file(io.BytesIO(r.content))[["name", "geometry"]]
+
+    # Rows with valid Boston-area coordinates
+    has_coords = (
+        df["Lat"].notna() & df["Long"].notna()
+        & (df["Lat"] != 0) & (df["Long"] != 0)
+    )
+    df_geo = df[has_coords].copy()
+    df_no_geo = df[~has_coords].copy()
+
+    # Point-in-polygon spatial join
+    gdf = gpd.GeoDataFrame(
+        df_geo,
+        geometry=gpd.points_from_xy(df_geo["Long"], df_geo["Lat"]),
+        crs="EPSG:4326",
+    )
+    joined = gpd.sjoin(gdf, neighborhoods, how="left", predicate="within")
+    joined = joined.rename(columns={"name": "neighborhood"})
+    joined = joined.drop(columns=["geometry", "index_right"], errors="ignore")
+
+    df_no_geo["neighborhood"] = pd.NA
+    return pd.concat([pd.DataFrame(joined), df_no_geo], ignore_index=True)
 
 
 @st.cache_data
 def load_offense_codes():
     return pd.read_csv(OFFENSE_CODES_URL, encoding="latin-1")
+
+
+@st.cache_data
+def load_merged():
+    crime = load_crime()
+    offense_codes = load_offense_codes()
+    crime_code_col = next(
+        (c for c in crime.columns if "offense_code" in c.lower() or c.lower() == "code"), None
+    )
+    offense_code_col = next(
+        (c for c in offense_codes.columns if "code" in c.lower()), None
+    )
+    if crime_code_col and offense_code_col:
+        return crime.merge(offense_codes, left_on=crime_code_col, right_on=offense_code_col, how="left")
+    return crime.copy()
 
 
 # ── Census loaders ───────────────────────────────────────────────────────────────
@@ -249,30 +300,26 @@ crime_tab, census_tab = st.tabs(["Crime Dashboard", "Census Data"])
 
 with crime_tab:
     try:
+        with st.spinner("Loading crime data (first load ~30s)..."):
+            merged = load_merged()
         crime = load_crime()
-        st.success(f"crime.csv loaded — {len(crime):,} rows")
+        st.success(f"Loaded 50,000-row sample of 319,073 total crime records")
     except Exception as e:
-        st.error(f"Could not load crime.csv: {e}")
+        st.error(f"Could not load crime data: {e}")
         st.stop()
 
-    try:
-        offense_codes = load_offense_codes()
-        st.success("offense_codes.csv loaded")
-    except Exception as e:
-        st.error(f"Could not load offense_codes.csv: {e}")
-        st.stop()
-
-    crime_code_col = next(
-        (c for c in crime.columns if "offense_code" in c.lower() or c.lower() == "code"), None
-    )
-    offense_code_col = next(
-        (c for c in offense_codes.columns if "code" in c.lower()), None
-    )
-
-    if crime_code_col and offense_code_col:
-        merged = crime.merge(offense_codes, left_on=crime_code_col, right_on=offense_code_col, how="left")
-    else:
-        merged = crime.copy()
+    with st.expander("Neighborhood assignment verification"):
+        assigned = crime["neighborhood"].notna().sum()
+        st.write(f"**{assigned:,}** of **{len(crime):,}** records assigned a neighborhood "
+                 f"({assigned / len(crime):.1%})")
+        st.write("Cross-tab: crimes per neighborhood × BPD district")
+        xtab = (
+            crime.dropna(subset=["neighborhood", "DISTRICT"])
+            .groupby(["neighborhood", "DISTRICT"])
+            .size()
+            .unstack(fill_value=0)
+        )
+        st.dataframe(xtab)
 
     # Sidebar filters
     st.sidebar.header("Crime Filters")
@@ -298,19 +345,19 @@ with crime_tab:
         )
 
     if desc_col:
-        descriptions = sorted(merged[desc_col].dropna().unique().tolist())
-        selected_descs = st.sidebar.multiselect("Offense description", options=descriptions, default=descriptions)
-        merged = merged[merged[desc_col].isin(selected_descs)]
+        offense_search = st.sidebar.text_input("Filter by offense (keyword)")
+        if offense_search:
+            merged = merged[merged[desc_col].str.contains(offense_search, case=False, na=False)]
 
     st.subheader(f"Filtered data — {len(merged):,} rows")
-    st.dataframe(merged.head(50))
+    st.dataframe(merged.head(5).fillna(""))
 
     st.subheader("Charts")
 
     if desc_col:
         st.write("Crime count by offense type (top 15)")
         offense_counts = (
-            merged[desc_col].value_counts().head(15)
+            merged[desc_col].dropna().value_counts().head(15)
             .rename_axis("Offense").reset_index(name="Count")
         )
         st.bar_chart(offense_counts.set_index("Offense"))
@@ -318,7 +365,7 @@ with crime_tab:
     if district_col:
         st.write("Crime count by district")
         district_counts = (
-            merged[district_col].value_counts()
+            merged[district_col].dropna().value_counts()
             .rename_axis("District").reset_index(name="Count")
         )
         st.bar_chart(district_counts.set_index("District"))
@@ -326,18 +373,17 @@ with crime_tab:
     month_col = next((c for c in merged.columns if c.upper() == "MONTH"), None)
     if year_col and month_col:
         st.write("Crime count by year and month")
-        merged["year_month"] = (
-            merged[year_col].astype(str) + "-" + merged[month_col].astype(str).str.zfill(2)
-        )
+        tm = merged[[year_col, month_col]].dropna()
+        tm = tm[year_col].astype(int).astype(str) + "-" + tm[month_col].astype(int).astype(str).str.zfill(2)
         time_counts = (
-            merged["year_month"].value_counts().sort_index()
+            tm.value_counts().sort_index()
             .rename_axis("Year-Month").reset_index(name="Count")
         )
         st.line_chart(time_counts.set_index("Year-Month"))
     elif year_col:
         st.write("Crime count by year")
         year_counts = (
-            merged[year_col].value_counts().sort_index()
+            merged[year_col].dropna().value_counts().sort_index()
             .rename_axis("Year").reset_index(name="Count")
         )
         st.bar_chart(year_counts.set_index("Year"))
