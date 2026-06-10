@@ -84,3 +84,17 @@ Crime records use BPD district codes (e.g. D14, C11) while census data is organi
 | I182070941 | Towed | D4 | 42.346589 | -71.072429 | South End |
 
 The `neighborhood` column now links crime records to any of the 15 census tables by neighborhood name. Lat/Long are preserved for mapping.
+
+## Handling missing data
+
+A NaN check was run on the full crime dataset (319,073 records) joined to census data. The following missing values were found and addressed:
+
+| Column(s) | Issue | Fix |
+|---|---|---|
+| `SHOOTING` | Blank when no shooting was involved (not actually missing) | Filled with `"N"`, kept `"Y"` as-is — now a clean Y/N flag |
+| `UCR_PART` | A few unclassified offenses | Filled with `"Other"`, an existing category |
+| `DISTRICT` | Older/incomplete records | Filled with `"Unknown"` |
+| `STREET` | Older/incomplete records | Filled with `"Unknown"` |
+| `Lat`, `Long`, `neighborhood`, all census columns | Records with no lat/long (can't be spatially joined), or located in areas not covered by the neighborhood-level census tables (Chinatown, Leather District, Bay Village, Harbor Islands) | Dropped — no reliable way to impute geography or demographics without fabricating data |
+
+Cleaning and dropping happen on the full dataset *before* sampling, so `boston_crime_compiled.csv` is a random sample of **30,000 rows with no missing values** across all 27 columns. This logic lives in `eda/generate_compiled_csv.py`.
