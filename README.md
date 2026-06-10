@@ -1,5 +1,7 @@
 # Boston Crime Dashboard
 
+[View Streamlit Dashboard]((https://boston-crime-viz.streamlit.app/)
+
 Data visualization project exploring crime patterns in Boston (2015–2018) alongside neighborhood-level census data.
 
 ***Collaboration credit to Claude Code (Sonnet 4.6)*** 
