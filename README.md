@@ -2,7 +2,7 @@
 
 Data visualization project exploring crime patterns in Boston (2015–2018) alongside neighborhood-level census data.
 
-***NOTE: Collaboration credit to Claude Code (Sonnet 4.6)*** 
+***Collaboration credit to Claude Code (Sonnet 4.6)*** 
 
 ## Data Sources
 
