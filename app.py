@@ -14,54 +14,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Hero ──────────────────────────────────────────────────────────────────────
-
-_hero_path = Path("assets/cop_background_faded.png")
-if _hero_path.exists():
-    _hero_b64 = base64.b64encode(_hero_path.read_bytes()).decode()
-    _hero_css = f'url("data:image/png;base64,{_hero_b64}") center / cover no-repeat'
-else:
-    _hero_css = "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)"
-
-st.markdown(
-    f"""
-    <style>
-    [data-testid="stAppViewContainer"] > .main {{padding-top: 0 !important;}}
-    .hero-section {{
-        background: {_hero_css};
-        min-height: 400px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        padding: 3rem 2rem;
-        margin: -1rem -1rem 2rem -1rem;
-    }}
-    .hero-title {{
-        color: white;
-        font-size: 3.5rem;
-        font-weight: 800;
-        text-shadow: 0 2px 16px rgba(0,0,0,0.85);
-        margin: 0 0 0.5rem 0;
-        letter-spacing: -0.02em;
-    }}
-    .hero-sub {{
-        color: rgba(255,255,255,0.88);
-        font-size: 1.25rem;
-        text-shadow: 0 1px 8px rgba(0,0,0,0.7);
-        margin: 0;
-        font-weight: 400;
-    }}
-    </style>
-    <div class="hero-section">
-        <div class="hero-title">Boston Crime</div>
-        <p class="hero-sub">Exploring patterns, places, and people behind the data</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 UCR_MAP = {
@@ -71,11 +23,12 @@ UCR_MAP = {
     "Other": "Unclassified",
 }
 UCR_ORDER = ["Serious Crime", "Non-Violent Crime", "Non-Criminal", "Unclassified"]
-UCR_COLORS = ["#d73027", "#fc8d59", "#fee090", "#aaaaaa"]
+# Red → yellow → green → gray
+UCR_COLORS = ["#e31a1c", "#f9a825", "#4daf4a", "#aaaaaa"]
 
 DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-# ── Data loading ──────────────────────────────────────────────────────────────
+# ── Data ──────────────────────────────────────────────────────────────────────
 
 @st.cache_data
 def load_data():
@@ -85,7 +38,7 @@ def load_data():
 
 df_raw = load_data()
 
-# ── Sidebar filters ───────────────────────────────────────────────────────────
+# ── Sidebar filters (defined early so metrics can reference df) ───────────────
 
 st.sidebar.header("Filters")
 
@@ -95,45 +48,195 @@ sel_years = st.sidebar.multiselect("Year", years_all, default=years_all)
 ucr_avail = [u for u in UCR_ORDER if u in df_raw["UCR_PART"].unique()]
 sel_ucr = st.sidebar.multiselect("Severity", ucr_avail, default=ucr_avail)
 
-df = df_raw[df_raw["YEAR"].isin(sel_years) & df_raw["UCR_PART"].isin(sel_ucr)].copy()
+offense_types_all = sorted(df_raw["OFFENSE_CODE_GROUP"].dropna().unique().tolist())
+sel_offense = st.sidebar.multiselect("Offense Type", offense_types_all, default=offense_types_all)
+
+df = df_raw[
+    df_raw["YEAR"].isin(sel_years)
+    & df_raw["UCR_PART"].isin(sel_ucr)
+    & df_raw["OFFENSE_CODE_GROUP"].isin(sel_offense)
+].copy()
 
 ucr_scale = alt.Scale(domain=UCR_ORDER, range=UCR_COLORS)
-ucr_color = alt.Color(
-    "UCR_PART:N", scale=ucr_scale, legend=alt.Legend(title="Severity")
+ucr_color = alt.Color("UCR_PART:N", scale=ucr_scale, legend=alt.Legend(title="Severity"))
+
+# ── Hero metrics (computed from filtered df) ──────────────────────────────────
+
+_n = len(df)
+_top_type = df["OFFENSE_CODE_GROUP"].value_counts().idxmax() if _n > 0 else "N/A"
+_serious_pct = f"{(df['UCR_PART'] == 'Serious Crime').sum() / _n:.1%}" if _n > 0 else "0%"
+_noncrim_pct = f"{(df['UCR_PART'] == 'Non-Criminal').sum() / _n:.1%}" if _n > 0 else "0%"
+
+# ── Hero ──────────────────────────────────────────────────────────────────────
+
+_hero_path = Path("assets/cop_background_faded.png")
+if _hero_path.exists():
+    _hero_b64 = base64.b64encode(_hero_path.read_bytes()).decode()
+    _hero_bg = f'url("data:image/png;base64,{_hero_b64}") center / cover no-repeat'
+else:
+    _hero_bg = "linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%)"
+
+st.markdown(
+    f"""
+    <style>
+    [data-testid="stAppViewContainer"] > .main {{padding-top: 0 !important;}}
+    .hero {{
+        background: {_hero_bg};
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 3rem 2rem;
+        margin: -1rem -1rem 2rem -1rem;
+        position: relative;
+    }}
+    .hero-overlay {{
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,0.48);
+    }}
+    .hero-inner {{
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        max-width: 900px;
+    }}
+    .hero-title {{
+        color: white;
+        font-size: 4rem;
+        font-weight: 800;
+        text-shadow: 0 2px 20px rgba(0,0,0,0.9);
+        margin: 0 0 0.4rem 0;
+        letter-spacing: -0.02em;
+    }}
+    .hero-sub {{
+        color: rgba(255,255,255,0.82);
+        font-size: 1.2rem;
+        font-weight: 400;
+        text-shadow: 0 1px 8px rgba(0,0,0,0.7);
+        margin: 0 0 3.5rem 0;
+    }}
+    .hero-stats {{
+        display: flex;
+        justify-content: center;
+        gap: 5rem;
+        margin-bottom: 4rem;
+    }}
+    .hero-stat {{
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.3rem;
+    }}
+    .hero-stat-val {{
+        color: white;
+        font-size: 2.4rem;
+        font-weight: 700;
+        line-height: 1;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+    }}
+    .hero-stat-lbl {{
+        color: rgba(255,255,255,0.7);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+    }}
+    .scroll-hint {{
+        color: rgba(255,255,255,0.75);
+        font-size: 2.2rem;
+        animation: bounce 2s ease-in-out infinite;
+        user-select: none;
+    }}
+    @keyframes bounce {{
+        0%,100% {{ transform: translateY(0); }}
+        50%      {{ transform: translateY(10px); }}
+    }}
+    </style>
+    <div class="hero">
+      <div class="hero-overlay"></div>
+      <div class="hero-inner">
+        <div class="hero-title">Boston Crime</div>
+        <p class="hero-sub">Exploring patterns, places, and people behind the data</p>
+        <div class="hero-stats">
+          <div class="hero-stat">
+            <div class="hero-stat-val">{_n:,}</div>
+            <div class="hero-stat-lbl">Incidents in View</div>
+          </div>
+          <div class="hero-stat">
+            <div class="hero-stat-val">{_top_type}</div>
+            <div class="hero-stat-lbl">Most Common Type</div>
+          </div>
+          <div class="hero-stat">
+            <div class="hero-stat-val">{_serious_pct}</div>
+            <div class="hero-stat-lbl">Serious Crime</div>
+          </div>
+          <div class="hero-stat">
+            <div class="hero-stat-val">{_noncrim_pct}</div>
+            <div class="hero-stat-lbl">Non-Criminal</div>
+          </div>
+        </div>
+        <div class="scroll-hint">&#8595;</div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-# ── Section 1: Big picture ────────────────────────────────────────────────────
+# ── Section 1: Monthly volume trend ──────────────────────────────────────────
 
-st.markdown("## What is happening overall?")
+st.markdown("## How did incident volume shift year to year?")
+st.markdown(
+    "Non-criminal calls (tows, medical assists, traffic stops) dominate every year. "
+    "Hover a band for details. Click a legend item to isolate that severity."
+)
 
-m1, m2, m3, m4, m5 = st.columns(5)
-with m1:
-    st.metric("Total Incidents", f"{len(df):,}")
-with m2:
-    st.metric("Shooting Incidents", f"{df['SHOOTING'].eq('Y').sum():,}")
-with m3:
-    top_off = (
-        df["OFFENSE_CODE_GROUP"].value_counts().idxmax() if len(df) else "N/A"
+monthly = (
+    df.groupby(["YEAR", "MONTH", "UCR_PART"])
+    .size()
+    .reset_index(name="count")
+)
+monthly["date"] = pd.to_datetime(
+    monthly["YEAR"].astype(str) + "-" + monthly["MONTH"].astype(str).str.zfill(2) + "-01"
+)
+
+area_sel = alt.selection_point(fields=["UCR_PART"], bind="legend")
+
+area_chart = (
+    alt.Chart(monthly)
+    .mark_area(interpolate="monotone")
+    .encode(
+        x=alt.X(
+            "date:T",
+            title="",
+            axis=alt.Axis(format="%b %Y", labelAngle=-30, grid=False),
+        ),
+        y=alt.Y("count:Q", stack=True, title="Incidents", axis=alt.Axis(grid=False)),
+        color=ucr_color,
+        order=alt.Order("UCR_PART:N", sort="ascending"),
+        opacity=alt.condition(area_sel, alt.value(0.88), alt.value(0.1)),
+        tooltip=[
+            alt.Tooltip("date:T", title="Month", format="%B %Y"),
+            alt.Tooltip("UCR_PART:N", title="Severity"),
+            alt.Tooltip("count:Q", title="Incidents", format=","),
+        ],
     )
-    st.metric("Top Offense", top_off)
-with m4:
-    top_nbhd = (
-        df["neighborhood"].value_counts().idxmax()
-        if df["neighborhood"].notna().any()
-        else "N/A"
-    )
-    st.metric("Most Active Neighborhood", top_nbhd)
-with m5:
-    top_yr = str(int(df["YEAR"].value_counts().idxmax())) if len(df) else "N/A"
-    st.metric("Most Active Year", top_yr)
+    .add_params(area_sel)
+    .properties(height=340)
+)
+
+st.altair_chart(area_chart, use_container_width=True)
 
 # ── Section 2: Time patterns ──────────────────────────────────────────────────
 
 st.markdown("---")
 st.markdown("## When does Boston stay busy?")
 st.markdown(
-    "Incidents broken down by hour of day and day of week. "
-    "Drag on the hour chart to filter the day chart by time window."
+    "Incidents climb through the day and peak in the late afternoon. "
+    "**Drag across the hour chart** to filter the day-of-week breakdown on the right. "
+    "Click a legend item to isolate a severity in both charts."
 )
 
 hour_lbl_expr = (
@@ -155,9 +258,10 @@ hour_bars = (
             title="Hour of Day",
             axis=alt.Axis(labelExpr=hour_lbl_expr, labelAngle=-45, grid=False),
         ),
-        y=alt.Y("count():Q", title="Incidents", axis=alt.Axis(grid=False)),
-        color=alt.condition(brush, ucr_color, alt.value("#d0d0d0")),
-        opacity=alt.condition(legend_sel_2, alt.value(1.0), alt.value(0.07)),
+        y=alt.Y("count():Q", stack=True, title="Incidents", axis=alt.Axis(grid=False)),
+        color=ucr_color,
+        order=alt.Order("UCR_PART:N", sort="ascending"),
+        opacity=alt.condition(legend_sel_2, alt.value(1.0), alt.value(0.1)),
         tooltip=[
             alt.Tooltip("HOUR:O", title="Hour"),
             alt.Tooltip("UCR_PART:N", title="Severity"),
@@ -166,8 +270,8 @@ hour_bars = (
     )
     .add_params(brush, legend_sel_2)
     .properties(
-        width=600,
-        height=300,
+        width=520,
+        height=340,
         title=alt.TitleParams("Drag to select a time window", fontSize=12, color="#999"),
     )
 )
@@ -176,15 +280,16 @@ dow_bars = (
     alt.Chart(df_time)
     .mark_bar()
     .encode(
-        x=alt.X(
+        y=alt.Y(
             "DAY_OF_WEEK:N",
             sort=DAY_ORDER,
-            title="Day of Week",
-            axis=alt.Axis(labelAngle=-30, grid=False),
+            title="",
+            axis=alt.Axis(grid=False),
         ),
-        y=alt.Y("count():Q", title="Incidents", axis=alt.Axis(grid=False)),
-        color=alt.condition(brush, ucr_color, alt.value("#d0d0d0")),
-        opacity=alt.condition(legend_sel_2, alt.value(1.0), alt.value(0.07)),
+        x=alt.X("count():Q", stack=True, title="Incidents", axis=alt.Axis(grid=False)),
+        color=ucr_color,
+        order=alt.Order("UCR_PART:N", sort="ascending"),
+        opacity=alt.condition(legend_sel_2, alt.value(1.0), alt.value(0.1)),
         tooltip=[
             alt.Tooltip("DAY_OF_WEEK:N", title="Day"),
             alt.Tooltip("UCR_PART:N", title="Severity"),
@@ -193,10 +298,10 @@ dow_bars = (
     )
     .transform_filter(brush)
     .properties(
-        width=320,
-        height=300,
+        width=400,
+        height=340,
         title=alt.TitleParams(
-            "Distribution within selected hours", fontSize=12, color="#999"
+            "Day-of-week breakdown (filtered by selected hours)", fontSize=12, color="#999"
         ),
     )
 )
@@ -206,24 +311,37 @@ st.altair_chart(
     use_container_width=False,
 )
 
-# ── Section 3: Offense types and trends ──────────────────────────────────────
+# ── Section 3: What is happening and is it changing? ─────────────────────────
 
 st.markdown("---")
 st.markdown("## What is happening, and is it changing?")
-st.markdown("Click an offense type to explore its year-over-year trend.")
+st.markdown(
+    "Click an offense type to see how its severity mix has shifted year over year. "
+    "Use **Offense Type** in the sidebar to narrow the list."
+)
 
-top_types = (
-    df.groupby("OFFENSE_CODE_GROUP")
+df_type_sev = (
+    df.groupby(["OFFENSE_CODE_GROUP", "UCR_PART"])
     .size()
     .reset_index(name="count")
-    .nlargest(15, "count")
 )
-type_order = top_types.sort_values("count")["OFFENSE_CODE_GROUP"].tolist()
+_type_totals = df_type_sev.groupby("OFFENSE_CODE_GROUP")["count"].sum()
+top15 = _type_totals.nlargest(15).index.tolist()
+type_order = _type_totals.loc[top15].sort_values().index.tolist()
+df_type_sev = df_type_sev[df_type_sev["OFFENSE_CODE_GROUP"].isin(top15)]
+
+df_year_sev = (
+    df[df["OFFENSE_CODE_GROUP"].isin(top15)]
+    .groupby(["OFFENSE_CODE_GROUP", "YEAR", "UCR_PART"])
+    .size()
+    .reset_index(name="count")
+)
 
 type_sel = alt.selection_point(fields=["OFFENSE_CODE_GROUP"])
+legend_sel_3 = alt.selection_point(fields=["UCR_PART"], bind="legend")
 
 type_bar = (
-    alt.Chart(top_types)
+    alt.Chart(df_type_sev)
     .mark_bar()
     .encode(
         y=alt.Y(
@@ -232,44 +350,42 @@ type_bar = (
             title="",
             axis=alt.Axis(grid=False),
         ),
-        x=alt.X("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
-        color=alt.condition(type_sel, alt.value("#1a6b9a"), alt.value("#d0d0d0")),
+        x=alt.X("count:Q", stack=True, title="Incidents", axis=alt.Axis(grid=False)),
+        color=ucr_color,
+        order=alt.Order("UCR_PART:N", sort="ascending"),
+        opacity=alt.condition(legend_sel_3, alt.value(1.0), alt.value(0.1)),
         tooltip=[
             alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
+            alt.Tooltip("UCR_PART:N", title="Severity"),
             alt.Tooltip("count:Q", title="Incidents", format=","),
         ],
     )
-    .add_params(type_sel)
+    .add_params(type_sel, legend_sel_3)
     .properties(
-        width=400,
-        height=380,
+        width=380,
+        height=400,
         title=alt.TitleParams("Click to filter trend", fontSize=12, color="#999"),
     )
 )
 
-df_type_year = (
-    df.groupby(["OFFENSE_CODE_GROUP", "YEAR"])
-    .size()
-    .reset_index(name="count")
-)
-
 year_trend = (
-    alt.Chart(df_type_year)
-    .mark_line(point=True, strokeWidth=2.5)
+    alt.Chart(df_year_sev)
+    .mark_line(point=alt.OverlayMarkDef(size=60), strokeWidth=2.5)
     .encode(
         x=alt.X("YEAR:O", title="Year", axis=alt.Axis(grid=False)),
-        y=alt.Y("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
-        color=alt.Color("OFFENSE_CODE_GROUP:N", legend=None),
+        y=alt.Y("sum(count):Q", title="Incidents", axis=alt.Axis(grid=False)),
+        color=ucr_color,
+        opacity=alt.condition(legend_sel_3, alt.value(1.0), alt.value(0.1)),
         tooltip=[
-            alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
             alt.Tooltip("YEAR:O", title="Year"),
-            alt.Tooltip("count:Q", title="Incidents", format=","),
+            alt.Tooltip("UCR_PART:N", title="Severity"),
+            alt.Tooltip("sum(count):Q", title="Incidents", format=","),
         ],
     )
     .transform_filter(type_sel)
     .properties(
-        width=460,
-        height=380,
+        width=440,
+        height=400,
         title=alt.TitleParams(
             "Year over year trend for selected type", fontSize=12, color="#999"
         ),
@@ -277,7 +393,7 @@ year_trend = (
 )
 
 st.altair_chart(
-    alt.hconcat(type_bar, year_trend, spacing=50).resolve_scale(color="independent"),
+    alt.hconcat(type_bar, year_trend, spacing=50).resolve_scale(color="shared"),
     use_container_width=False,
 )
 
@@ -286,8 +402,8 @@ st.altair_chart(
 st.markdown("---")
 st.markdown("## Where does crime happen?")
 st.markdown(
-    "Use the filters below to explore the geographic spread of crime across Boston. "
-    "These filters are independent of the sidebar."
+    "Map filters are independent of the sidebar. "
+    "**Add offense types below** to display incidents on the map."
 )
 
 _mc1, _mc2, _mc3 = st.columns([1, 1, 2])
@@ -296,93 +412,95 @@ with _mc1:
 with _mc2:
     map_sev = st.multiselect("Severity", ucr_avail, default=ucr_avail, key="map_sev")
 with _mc3:
-    off_types_all = sorted(df_raw["OFFENSE_CODE_GROUP"].dropna().unique().tolist())
     map_types = st.multiselect(
-        "Offense Type", off_types_all, default=off_types_all, key="map_typ"
+        "Offense Type (add to display)",
+        offense_types_all,
+        default=[],
+        key="map_typ",
     )
 
 _UCR_RGB = {
-    "Serious Crime": [215, 48, 39],
-    "Non-Violent Crime": [252, 141, 89],
-    "Non-Criminal": [215, 175, 0],
-    "Unclassified": [150, 150, 150],
+    "Serious Crime":     [227, 26,  28],
+    "Non-Violent Crime": [249, 168, 37],
+    "Non-Criminal":      [77,  175, 74],
+    "Unclassified":      [150, 150, 150],
 }
 
-_df_map_raw = df_raw[
-    df_raw["YEAR"].isin(map_years)
-    & df_raw["UCR_PART"].isin(map_sev)
-    & df_raw["OFFENSE_CODE_GROUP"].isin(map_types)
-    & df_raw["Lat"].notna()
-    & df_raw["Long"].notna()
-    & (df_raw["Lat"] != 0)
-    & (df_raw["Long"] != 0)
-].copy()
+if map_types:
+    _df_m = df_raw[
+        df_raw["YEAR"].isin(map_years)
+        & df_raw["UCR_PART"].isin(map_sev)
+        & df_raw["OFFENSE_CODE_GROUP"].isin(map_types)
+        & df_raw["Lat"].notna()
+        & df_raw["Long"].notna()
+        & (df_raw["Lat"] != 0)
+        & (df_raw["Long"] != 0)
+    ].copy()
 
-_df_map_raw["_r"] = _df_map_raw["UCR_PART"].map(
-    lambda x: _UCR_RGB.get(x, [150, 150, 150])[0]
-)
-_df_map_raw["_g"] = _df_map_raw["UCR_PART"].map(
-    lambda x: _UCR_RGB.get(x, [150, 150, 150])[1]
-)
-_df_map_raw["_b"] = _df_map_raw["UCR_PART"].map(
-    lambda x: _UCR_RGB.get(x, [150, 150, 150])[2]
-)
+    _df_m["_r"] = _df_m["UCR_PART"].map(lambda x: _UCR_RGB.get(x, [150,150,150])[0])
+    _df_m["_g"] = _df_m["UCR_PART"].map(lambda x: _UCR_RGB.get(x, [150,150,150])[1])
+    _df_m["_b"] = _df_m["UCR_PART"].map(lambda x: _UCR_RGB.get(x, [150,150,150])[2])
 
-_pdk_cols = [
-    "Lat", "Long", "UCR_PART", "OFFENSE_DESCRIPTION",
-    "neighborhood", "OCCURRED_ON_DATE", "_r", "_g", "_b",
-]
-_df_pdk = _df_map_raw[_pdk_cols].reset_index(drop=True)
+    _df_pdk = _df_m[[
+        "Lat", "Long", "UCR_PART", "OFFENSE_DESCRIPTION",
+        "neighborhood", "OCCURRED_ON_DATE", "_r", "_g", "_b",
+    ]].reset_index(drop=True)
 
-map_layer = pdk.Layer(
-    "ScatterplotLayer",
-    _df_pdk,
-    get_position=["Long", "Lat"],
-    get_fill_color=["_r", "_g", "_b", 170],
-    get_radius=80,
-    radius_min_pixels=2,
-    radius_max_pixels=8,
-    pickable=True,
-)
+    st.pydeck_chart(
+        pdk.Deck(
+            layers=[
+                pdk.Layer(
+                    "ScatterplotLayer",
+                    _df_pdk,
+                    get_position=["Long", "Lat"],
+                    get_fill_color=["_r", "_g", "_b", 170],
+                    get_radius=80,
+                    radius_min_pixels=2,
+                    radius_max_pixels=8,
+                    pickable=True,
+                )
+            ],
+            initial_view_state=pdk.ViewState(
+                latitude=42.33, longitude=-71.07, zoom=11.5, pitch=0
+            ),
+            map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+            tooltip={"text": "{OFFENSE_DESCRIPTION}\n{neighborhood}\n{OCCURRED_ON_DATE}"},
+        ),
+        use_container_width=True,
+        height=540,
+    )
+    st.caption(f"Showing {len(_df_pdk):,} incidents")
+else:
+    st.info("Select one or more offense types above to plot incidents on the map.")
 
-map_view = pdk.ViewState(latitude=42.33, longitude=-71.07, zoom=11.5, pitch=0)
-
-st.pydeck_chart(
-    pdk.Deck(
-        layers=[map_layer],
-        initial_view_state=map_view,
-        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-        tooltip={
-            "text": "{OFFENSE_DESCRIPTION}\n{neighborhood}\n{OCCURRED_ON_DATE}"
-        },
-    ),
-    use_container_width=True,
-    height=540,
-)
-st.caption(f"Showing {len(_df_pdk):,} incidents")
-
-# ── Section 5: Severity by neighborhood ──────────────────────────────────────
+# ── Section 5: Severity by neighborhood (top 12) ──────────────────────────────
 
 st.markdown("---")
 st.markdown("## How serious is crime by neighborhood?")
-st.markdown(
-    "Neighborhoods sorted left to right by number of serious (Part One) crimes."
+st.markdown("Top 12 neighborhoods by total incident volume, sorted by serious crime count.")
+
+_TOP_N = 12
+
+_top_nbhds = (
+    df[df["neighborhood"].notna()]
+    .groupby("neighborhood")
+    .size()
+    .nlargest(_TOP_N)
+    .index.tolist()
 )
 
 nbhd_ucr = (
-    df[df["neighborhood"].notna()]
+    df[df["neighborhood"].isin(_top_nbhds)]
     .groupby(["neighborhood", "UCR_PART"])
     .size()
     .reset_index(name="count")
 )
 
-_serious_counts = (
+_serious = (
     nbhd_ucr[nbhd_ucr["UCR_PART"] == "Serious Crime"]
     .set_index("neighborhood")["count"]
 )
-nbhd_sev_order = _serious_counts.sort_values(ascending=False).index.tolist()
-_extras = [n for n in nbhd_ucr["neighborhood"].unique() if n not in nbhd_sev_order]
-nbhd_sev_order += _extras
+nbhd_order = _serious.reindex(_top_nbhds).sort_values(ascending=False).index.tolist()
 
 severity_chart = (
     alt.Chart(nbhd_ucr)
@@ -390,89 +508,42 @@ severity_chart = (
     .encode(
         x=alt.X(
             "neighborhood:N",
-            sort=nbhd_sev_order,
+            sort=nbhd_order,
             title="",
-            axis=alt.Axis(labelAngle=-45, grid=False),
+            axis=alt.Axis(labelAngle=-40, grid=False),
         ),
-        y=alt.Y("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
-        color=alt.Color(
-            "UCR_PART:N",
-            scale=ucr_scale,
-            legend=alt.Legend(title="Severity"),
-        ),
+        y=alt.Y("count:Q", stack=True, title="Incidents", axis=alt.Axis(grid=False)),
+        color=alt.Color("UCR_PART:N", scale=ucr_scale, legend=alt.Legend(title="Severity")),
+        order=alt.Order("UCR_PART:N", sort="ascending"),
         tooltip=[
             alt.Tooltip("neighborhood:N", title="Neighborhood"),
             alt.Tooltip("UCR_PART:N", title="Severity"),
             alt.Tooltip("count:Q", title="Incidents", format=","),
         ],
     )
-    .properties(
-        height=380,
-        title="Crime severity by neighborhood, sorted by serious crime",
-    )
+    .properties(height=360)
 )
 
 st.altair_chart(severity_chart, use_container_width=True)
 
-# ── Section 6: Offense type heatmap ──────────────────────────────────────────
-
-st.markdown("---")
-st.markdown("## What types of incidents define each neighborhood?")
-
-nbhd_type = (
-    df[df["neighborhood"].notna()]
-    .groupby(["neighborhood", "OFFENSE_CODE_GROUP"])
-    .size()
-    .reset_index(name="count")
-)
-
-heatmap = (
-    alt.Chart(nbhd_type)
-    .mark_rect(stroke="white", strokeWidth=0.5)
-    .encode(
-        x=alt.X(
-            "OFFENSE_CODE_GROUP:N",
-            title="Offense Type",
-            axis=alt.Axis(labelAngle=-45, grid=False),
-        ),
-        y=alt.Y(
-            "neighborhood:N",
-            title="",
-            sort=nbhd_sev_order,
-            axis=alt.Axis(grid=False),
-        ),
-        color=alt.Color(
-            "count:Q", scale=alt.Scale(scheme="blues"), title="Incidents"
-        ),
-        tooltip=[
-            alt.Tooltip("neighborhood:N", title="Neighborhood"),
-            alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
-            alt.Tooltip("count:Q", title="Incidents", format=","),
-        ],
-    )
-    .properties(height=560)
-)
-
-st.altair_chart(heatmap, use_container_width=True)
-
-# ── Section 7: Demographics ───────────────────────────────────────────────────
+# ── Section 6: Demographics ───────────────────────────────────────────────────
 
 st.markdown("---")
 st.markdown("## Does demographics predict crime?")
 st.markdown(
     "Explore how neighborhood characteristics relate to crime rates. "
-    "Bubble size represents population. Click a bubble to highlight that neighborhood."
+    "Bubble size = population. Click a bubble to highlight that neighborhood."
 )
 
 DEMO_CONFIGS = [
-    ("median_hh_income",  "Median Household Income", "$,.0f"),
-    ("poverty_rate",      "Poverty Rate",             ".1%"),
-    ("pct_bachelors_plus","% Bachelor's Degree+",     ".1%"),
-    ("pct_less_than_hs",  "% Less than High School",  ".1%"),
-    ("pct_white",         "% White",                  ".1%"),
-    ("pct_black",         "% Black",                  ".1%"),
-    ("pct_hispanic",      "% Hispanic",               ".1%"),
-    ("median_age",        "Median Age",               ".1f"),
+    ("median_hh_income",   "Median Household Income", "$,.0f"),
+    ("poverty_rate",       "Poverty Rate",             ".1%"),
+    ("pct_bachelors_plus", "% Bachelor's Degree+",    ".1%"),
+    ("pct_less_than_hs",   "% Less than High School", ".1%"),
+    ("pct_white",          "% White",                 ".1%"),
+    ("pct_black",          "% Black",                 ".1%"),
+    ("pct_hispanic",       "% Hispanic",              ".1%"),
+    ("median_age",         "Median Age",              ".1f"),
 ]
 
 demo_choice = st.selectbox(
@@ -488,25 +559,19 @@ def _first_mode(s):
     m = s.dropna().mode()
     return m.iloc[0] if len(m) > 0 else None
 
-_nbhd_grp = df[df["neighborhood"].notna()].groupby("neighborhood")
-nbhd_demo = (
-    _nbhd_grp["INCIDENT_NUMBER"].count().rename("crime_count").reset_index()
-)
-nbhd_demo["total_pop"] = _nbhd_grp["total_pop"].agg(_first_mode).values
+_grp = df[df["neighborhood"].notna()].groupby("neighborhood")
+nbhd_demo = _grp["INCIDENT_NUMBER"].count().rename("crime_count").reset_index()
+nbhd_demo["total_pop"] = _grp["total_pop"].agg(_first_mode).values
 for _dc, _, _ in DEMO_CONFIGS:
     if _dc in df.columns:
-        nbhd_demo[_dc] = _nbhd_grp[_dc].agg(_first_mode).values
+        nbhd_demo[_dc] = _grp[_dc].agg(_first_mode).values
 
-nbhd_demo["crime_rate_per_1k"] = (
-    nbhd_demo["crime_count"] / nbhd_demo["total_pop"] * 1000
-)
-nbhd_demo = nbhd_demo.dropna(
-    subset=[demo_col_name, "crime_rate_per_1k", "total_pop"]
-)
+nbhd_demo["crime_rate_per_1k"] = nbhd_demo["crime_count"] / nbhd_demo["total_pop"] * 1000
+nbhd_demo = nbhd_demo.dropna(subset=[demo_col_name, "crime_rate_per_1k", "total_pop"])
 
 nbhd_sel = alt.selection_point(fields=["neighborhood"])
 
-bubble_points = (
+bubble_pts = (
     alt.Chart(nbhd_demo)
     .mark_circle(stroke="#fff", strokeWidth=1.5)
     .encode(
@@ -520,16 +585,10 @@ bubble_points = (
             title="Incidents / 1,000 residents",
             axis=alt.Axis(grid=False),
         ),
-        size=alt.Size(
-            "total_pop:Q", scale=alt.Scale(range=[60, 1800]), legend=None
-        ),
+        size=alt.Size("total_pop:Q", scale=alt.Scale(range=[60, 1800]), legend=None),
         color=alt.condition(
             nbhd_sel,
-            alt.Color(
-                "crime_rate_per_1k:Q",
-                scale=alt.Scale(scheme="reds"),
-                legend=None,
-            ),
+            alt.Color("crime_rate_per_1k:Q", scale=alt.Scale(scheme="reds"), legend=None),
             alt.value("#d4d4d4"),
         ),
         opacity=alt.condition(nbhd_sel, alt.value(0.92), alt.value(0.35)),
@@ -543,7 +602,7 @@ bubble_points = (
     .add_params(nbhd_sel)
 )
 
-bubble_labels = (
+bubble_lbl = (
     alt.Chart(nbhd_demo)
     .mark_text(align="left", dx=7, dy=-3, fontSize=10, color="#555")
     .encode(
@@ -554,12 +613,10 @@ bubble_labels = (
     )
 )
 
-demo_chart = (
-    (bubble_points + bubble_labels)
-    .properties(
+st.altair_chart(
+    (bubble_pts + bubble_lbl).properties(
         height=460,
         title=f"{demo_label} vs. Crime Rate by Neighborhood",
-    )
+    ),
+    use_container_width=True,
 )
-
-st.altair_chart(demo_chart, use_container_width=True)
