@@ -91,6 +91,7 @@ st.markdown(
 # ── Sidebar filters ───────────────────────────────────────────────────────────
 
 st.sidebar.header("Filters")
+st.sidebar.caption("Selections here filter every chart across the entire dashboard.")
 
 years_all = sorted(df_raw["YEAR"].dropna().unique().astype(int).tolist())
 sel_years = st.sidebar.multiselect("Year", years_all, default=years_all)
