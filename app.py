@@ -108,6 +108,7 @@ ucr_color = alt.Color("UCR_PART:N", scale=ucr_scale, legend=alt.Legend(title="Se
 _n = len(df)
 _top_type = df["OFFENSE_CODE_GROUP"].value_counts().idxmax() if _n > 0 else "N/A"
 _serious_pct = f"{(df['UCR_PART'] == 'Serious Crime').sum() / _n:.1%}" if _n > 0 else "0%"
+_nonviolent_pct = f"{(df['UCR_PART'] == 'Non-Violent Crime').sum() / _n:.1%}" if _n > 0 else "0%"
 _noncrim_pct = f"{(df['UCR_PART'] == 'Non-Criminal').sum() / _n:.1%}" if _n > 0 else "0%"
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
@@ -156,8 +157,9 @@ st.markdown(
     }}
     .hero-sub {{
         color: rgba(255,255,255,0.88);
-        font-size: 3rem;
+        font-size: clamp(6.5rem, 12vw, 10rem);
         font-weight: 400;
+        line-height: 1;
         text-shadow: 0 1px 8px rgba(0,0,0,0.7);
         margin: 0;
     }}
@@ -207,6 +209,10 @@ st.markdown(
         <div style="{_l}">Serious Crime</div>
         <div style="{_v}">{_serious_pct}</div>
       </div>
+      <div style="{_c}border-top:3px solid #f9a825;">
+        <div style="{_l}">Non-Violent Crime</div>
+        <div style="{_v}">{_nonviolent_pct}</div>
+      </div>
       <div style="{_c}border-top:3px solid #4daf4a;">
         <div style="{_l}">Non-Criminal</div>
         <div style="{_v}">{_noncrim_pct}</div>
@@ -230,6 +236,22 @@ monthly["date"] = pd.to_datetime(
 )
 
 area_sel = alt.selection_point(fields=["UCR_PART"], bind="legend")
+area_color = alt.Color(
+    "UCR_PART:N",
+    scale=ucr_scale,
+    legend=alt.Legend(
+        title="Severity",
+        labelFontSize=18,
+        titleFontSize=18,
+        labelOffset=2,
+        titlePadding=6,
+        symbolSize=280,
+        direction="horizontal",
+        orient="top",
+        offset=4,
+        padding=4,
+    ),
+)
 
 area_chart = (
     alt.Chart(monthly)
@@ -237,7 +259,7 @@ area_chart = (
     .encode(
         x=alt.X("date:T", title="", axis=alt.Axis(format="%b %Y", labelAngle=-30, grid=False)),
         y=alt.Y("count:Q", stack=True, title="Incidents", axis=alt.Axis(grid=False)),
-        color=ucr_color,
+        color=area_color,
         order=alt.Order("UCR_PART:N", sort="ascending"),
         opacity=alt.condition(area_sel, alt.value(0.88), alt.value(0.1)),
         tooltip=[
@@ -329,65 +351,53 @@ st.altair_chart(
 st.markdown("---")
 st.markdown("## What is happening, when?")
 st.markdown(
-    "**Click an offense type bar** to see when that type of crime occurs, "
+    "**Click a severity slice** to see when crimes of that severity occur, "
     "broken down by hour of day and day of week. No selection shows the overall pattern."
 )
 
-_excl_hm = {"Other"}
-_type_tot_hm = (
-    df[~df["OFFENSE_CODE_GROUP"].isin(_excl_hm)]
-    .groupby("OFFENSE_CODE_GROUP")
+_severity_totals_hm = (
+    df.groupby("UCR_PART")
     .size()
     .reset_index(name="count")
+    .sort_values("count", ascending=False)
 )
-_top_types_hm = _type_tot_hm.nlargest(15, "count")["OFFENSE_CODE_GROUP"].tolist()
-_type_order_hm = (
-    _type_tot_hm[_type_tot_hm["OFFENSE_CODE_GROUP"].isin(_top_types_hm)]
-    .sort_values("count", ascending=False)["OFFENSE_CODE_GROUP"]
-    .tolist()
-)
-_type_tot_hm = _type_tot_hm[_type_tot_hm["OFFENSE_CODE_GROUP"].isin(_top_types_hm)]
+_severity_order_hm = _severity_totals_hm["UCR_PART"].tolist()
+_df_hm_raw = df[df["HOUR"].notna() & df["DAY_OF_WEEK"].notna()][["UCR_PART", "HOUR", "DAY_OF_WEEK"]].copy()
 
-_type_ucr_mode = (
-    df[df["OFFENSE_CODE_GROUP"].isin(_top_types_hm)]
-    .groupby("OFFENSE_CODE_GROUP")["UCR_PART"]
-    .agg(lambda x: x.mode().iloc[0] if len(x) > 0 else "Unclassified")
-    .reset_index()
-)
-_type_tot_hm = _type_tot_hm.merge(_type_ucr_mode, on="OFFENSE_CODE_GROUP", how="left")
+severity_hm_sel = alt.selection_point(fields=["UCR_PART"], name="severity_hm_sel")
 
-_df_hm_raw = df[
-    df["OFFENSE_CODE_GROUP"].isin(_top_types_hm)
-    & df["HOUR"].notna()
-    & df["DAY_OF_WEEK"].notna()
-][["OFFENSE_CODE_GROUP", "HOUR", "DAY_OF_WEEK"]].copy()
-
-type_hm_sel = alt.selection_point(fields=["OFFENSE_CODE_GROUP"])
-
-type_hm_bar = (
-    alt.Chart(_type_tot_hm)
-    .mark_bar()
+severity_hm_pie = (
+    alt.Chart(_severity_totals_hm)
+    .mark_arc(innerRadius=55, stroke="#fff", strokeWidth=1)
     .encode(
-        y=alt.Y(
-            "OFFENSE_CODE_GROUP:N",
-            sort=_type_order_hm,
-            title="",
-            axis=alt.Axis(grid=False, labelLimit=400),
+        theta=alt.Theta("count:Q", stack=True, title="Incidents"),
+        color=alt.Color(
+            "UCR_PART:N",
+            scale=ucr_scale,
+            legend=alt.Legend(
+                title="Severity",
+                labelFontSize=18,
+                titleFontSize=18,
+                labelOffset=2,
+                titlePadding=6,
+                symbolSize=280,
+                direction="horizontal",
+                orient="top",
+                offset=4,
+                padding=4,
+            ),
         ),
-        x=alt.X("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
-        color=alt.Color("UCR_PART:N", scale=ucr_scale, legend=alt.Legend(title="Severity")),
-        opacity=alt.condition(type_hm_sel, alt.value(1.0), alt.value(0.3)),
+        opacity=alt.condition(severity_hm_sel, alt.value(1.0), alt.value(0.35)),
         tooltip=[
-            alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
             alt.Tooltip("UCR_PART:N", title="Severity"),
             alt.Tooltip("count:Q", title="Incidents", format=","),
         ],
     )
-    .add_params(type_hm_sel)
+    .add_params(severity_hm_sel)
     .properties(
-        height=420,
+        height=300,
         title=alt.TitleParams(
-            "Click a bar to filter the heatmap below", fontSize=12, color="#999"
+            "Click a severity slice to filter the heatmap below", fontSize=12, color="#999"
         ),
     )
 )
@@ -413,7 +423,7 @@ type_hm_heat = (
             alt.Tooltip("count():Q", title="Incidents", format=","),
         ],
     )
-    .transform_filter(type_hm_sel)
+    .transform_filter(severity_hm_sel)
     .properties(
         height=260,
         title=alt.TitleParams(
@@ -423,7 +433,7 @@ type_hm_heat = (
 )
 
 st.altair_chart(
-    alt.vconcat(type_hm_bar, type_hm_heat, spacing=30),
+    alt.vconcat(severity_hm_pie, type_hm_heat, spacing=30),
     use_container_width=True,
 )
 
@@ -737,7 +747,7 @@ bubble_pts = (
 
 bubble_lbl = (
     alt.Chart(nbhd_demo)
-    .mark_text(align="left", dx=7, dy=-3, fontSize=10, color="#555")
+    .mark_text(align="left", dx=7, dy=-3, fontSize=12, color="#555")
     .encode(
         x=alt.X(f"{demo_col_name}:Q"),
         y=alt.Y("crime_rate_per_1k:Q"),
