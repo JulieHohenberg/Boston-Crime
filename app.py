@@ -679,7 +679,8 @@ st.altair_chart(severity_chart, use_container_width=True)
 st.markdown("---")
 st.markdown("## Does demographics predict crime?")
 st.markdown(
-    "Bubble size = population. **Click a bubble** to see that neighborhood's severity and offense type breakdown."
+    "Bubble size = population. **Hover over a bubble** to see neighborhood details. "
+    "Scroll to zoom, click and drag to pan."
 )
 
 DEMO_CONFIGS = [
@@ -737,7 +738,7 @@ bubble_pts = (
         size=alt.Size(
             "total_pop:Q",
             scale=alt.Scale(range=[60, 1800]),
-            legend=alt.Legend(title="Population", format=","),
+            legend=alt.Legend(title="Population", format=",.0f"),
         ),
         color=alt.Color(
             "crime_rate_per_1k:Q",
