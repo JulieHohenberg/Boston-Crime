@@ -36,6 +36,13 @@ _TIME_BUCKET_HOURS = {
     "Late Night (11pm–5am)": list(range(23, 24)) + list(range(0, 6)),
 }
 
+_HOUR_LABELS = {
+    0: "12 AM",
+    **{h: f"{h} AM" for h in range(1, 12)},
+    12: "12 PM",
+    **{h: f"{h - 12} PM" for h in range(13, 24)},
+}
+
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 _LOCAL_CSV = Path("eda/boston_crime_compiled.csv")
@@ -293,6 +300,7 @@ hour_click = alt.selection_point(fields=["HOUR"])
 legend_sel_2 = alt.selection_point(fields=["UCR_PART"], bind="legend")
 
 df_time = df[["HOUR", "DAY_OF_WEEK", "UCR_PART"]].dropna().copy()
+df_time["hour_label"] = df_time["HOUR"].map(_HOUR_LABELS)
 
 hour_bars = (
     alt.Chart(df_time)
@@ -303,9 +311,9 @@ hour_bars = (
         y=alt.Y("count():Q", stack=True, title="Incidents", axis=alt.Axis(grid=False)),
         color=ucr_color,
         order=alt.Order("UCR_PART:N", sort="ascending"),
-        opacity=alt.condition(legend_sel_2, alt.value(1.0), alt.value(0.1)),
+        opacity=alt.condition(hour_click, alt.value(1.0), alt.value(0.3)),
         tooltip=[
-            alt.Tooltip("HOUR:O", title="Hour"),
+            alt.Tooltip("hour_label:N", title="Hour"),
             alt.Tooltip("UCR_PART:N", title="Severity"),
             alt.Tooltip("count():Q", title="Incidents", format=","),
         ],
@@ -363,6 +371,7 @@ _severity_totals_hm = (
 )
 _severity_order_hm = _severity_totals_hm["UCR_PART"].tolist()
 _df_hm_raw = df[df["HOUR"].notna() & df["DAY_OF_WEEK"].notna()][["UCR_PART", "HOUR", "DAY_OF_WEEK"]].copy()
+_df_hm_raw["hour_label"] = _df_hm_raw["HOUR"].map(_HOUR_LABELS)
 
 severity_hm_sel = alt.selection_point(fields=["UCR_PART"], name="severity_hm_sel")
 
@@ -418,7 +427,7 @@ type_hm_heat = (
             legend=alt.Legend(title="Incidents"),
         ),
         tooltip=[
-            alt.Tooltip("HOUR:O", title="Hour"),
+            alt.Tooltip("hour_label:N", title="Hour"),
             alt.Tooltip("DAY_OF_WEEK:N", title="Day"),
             alt.Tooltip("count():Q", title="Incidents", format=","),
         ],
