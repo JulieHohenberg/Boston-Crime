@@ -324,12 +324,110 @@ st.altair_chart(
     use_container_width=True,
 )
 
+# ── Section 2b: What is happening, when? ──────────────────────────────────────
+
+st.markdown("---")
+st.markdown("## What is happening, when?")
+st.markdown(
+    "**Click an offense type bar** to see when that type of crime occurs — "
+    "by hour of day and day of week. No selection shows the overall pattern."
+)
+
+_excl_hm = {"Other"}
+_type_tot_hm = (
+    df[~df["OFFENSE_CODE_GROUP"].isin(_excl_hm)]
+    .groupby("OFFENSE_CODE_GROUP")
+    .size()
+    .reset_index(name="count")
+)
+_top_types_hm = _type_tot_hm.nlargest(15, "count")["OFFENSE_CODE_GROUP"].tolist()
+_type_order_hm = (
+    _type_tot_hm[_type_tot_hm["OFFENSE_CODE_GROUP"].isin(_top_types_hm)]
+    .sort_values("count", ascending=False)["OFFENSE_CODE_GROUP"]
+    .tolist()
+)
+_type_tot_hm = _type_tot_hm[_type_tot_hm["OFFENSE_CODE_GROUP"].isin(_top_types_hm)]
+
+_df_hm_raw = df[
+    df["OFFENSE_CODE_GROUP"].isin(_top_types_hm)
+    & df["HOUR"].notna()
+    & df["DAY_OF_WEEK"].notna()
+][["OFFENSE_CODE_GROUP", "HOUR", "DAY_OF_WEEK"]].copy()
+
+type_hm_sel = alt.selection_point(fields=["OFFENSE_CODE_GROUP"])
+
+type_hm_bar = (
+    alt.Chart(_type_tot_hm)
+    .mark_bar()
+    .encode(
+        y=alt.Y(
+            "OFFENSE_CODE_GROUP:N",
+            sort=_type_order_hm,
+            title="",
+            axis=alt.Axis(grid=False, labelLimit=400),
+        ),
+        x=alt.X("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
+        color=alt.Color(
+            "OFFENSE_CODE_GROUP:N",
+            scale=alt.Scale(scheme="category20"),
+            legend=None,
+        ),
+        opacity=alt.condition(type_hm_sel, alt.value(1.0), alt.value(0.3)),
+        tooltip=[
+            alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
+            alt.Tooltip("count:Q", title="Incidents", format=","),
+        ],
+    )
+    .add_params(type_hm_sel)
+    .properties(
+        height=420,
+        title=alt.TitleParams(
+            "Click a bar to filter the heatmap below ↓", fontSize=12, color="#999"
+        ),
+    )
+)
+
+type_hm_heat = (
+    alt.Chart(_df_hm_raw)
+    .mark_rect()
+    .encode(
+        x=alt.X(
+            "HOUR:O",
+            title="Hour of Day",
+            axis=alt.Axis(labelExpr=hour_lbl_expr, labelAngle=-45, grid=False),
+        ),
+        y=alt.Y("DAY_OF_WEEK:N", sort=DAY_ORDER, title="", axis=alt.Axis(grid=False)),
+        color=alt.Color(
+            "count():Q",
+            scale=alt.Scale(scheme="blues"),
+            legend=alt.Legend(title="Incidents"),
+        ),
+        tooltip=[
+            alt.Tooltip("HOUR:O", title="Hour"),
+            alt.Tooltip("DAY_OF_WEEK:N", title="Day"),
+            alt.Tooltip("count():Q", title="Incidents", format=","),
+        ],
+    )
+    .transform_filter(type_hm_sel)
+    .properties(
+        height=260,
+        title=alt.TitleParams(
+            "Incidents by hour of day × day of week", fontSize=12, color="#999"
+        ),
+    )
+)
+
+st.altair_chart(
+    alt.vconcat(type_hm_bar, type_hm_heat, spacing=30),
+    use_container_width=True,
+)
+
 # ── Section 3: What is happening and is it changing? ─────────────────────────
 
 st.markdown("---")
 st.markdown("## What is happening, and is it changing?")
 st.markdown(
-    "**Click a legend item** to highlight that offense type across both charts. "
+    "**Click a bar** to highlight that offense type across both charts. "
     "Use **Offense Type** in the sidebar to narrow the list."
 )
 
@@ -343,7 +441,7 @@ df_type_total = (
 )
 _type_totals = df_type_total.set_index("OFFENSE_CODE_GROUP")["count"]
 top15 = _type_totals.nlargest(15).index.tolist()
-type_order = _type_totals.loc[top15].sort_values(ascending=True).index.tolist()
+type_order = _type_totals.loc[top15].sort_values(ascending=False).index.tolist()
 df_type_total = df_type_total[df_type_total["OFFENSE_CODE_GROUP"].isin(top15)]
 
 df_year_type = (
@@ -364,7 +462,7 @@ _offense_color_leg = alt.Color(
     legend=alt.Legend(title="Offense Type"),
 )
 
-type_leg_sel = alt.selection_point(fields=["OFFENSE_CODE_GROUP"], bind="legend")
+type_bar_sel = alt.selection_point(fields=["OFFENSE_CODE_GROUP"])
 
 type_bar = (
     alt.Chart(df_type_total)
@@ -378,17 +476,17 @@ type_bar = (
         ),
         x=alt.X("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
         color=_offense_color_bar,
-        opacity=alt.condition(type_leg_sel, alt.value(1.0), alt.value(0.2)),
+        opacity=alt.condition(type_bar_sel, alt.value(1.0), alt.value(0.2)),
         tooltip=[
             alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
             alt.Tooltip("count:Q", title="Incidents", format=","),
         ],
     )
-    .add_params(type_leg_sel)
+    .add_params(type_bar_sel)
     .properties(
         width=600,
         height=480,
-        title=alt.TitleParams("Click legend to highlight →", fontSize=12, color="#999"),
+        title=alt.TitleParams("Click a bar to highlight →", fontSize=12, color="#999"),
     )
 )
 
@@ -399,7 +497,7 @@ year_trend = (
         x=alt.X("YEAR:O", title="Year", axis=alt.Axis(grid=False)),
         y=alt.Y("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
         color=_offense_color_leg,
-        opacity=alt.condition(type_leg_sel, alt.value(1.0), alt.value(0.05)),
+        opacity=alt.condition(type_bar_sel, alt.value(1.0), alt.value(0.05)),
         tooltip=[
             alt.Tooltip("YEAR:O", title="Year"),
             alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
@@ -596,8 +694,6 @@ for _dc, _, _ in DEMO_CONFIGS:
 nbhd_demo["crime_rate_per_1k"] = nbhd_demo["crime_count"] / nbhd_demo["total_pop"] * 1000
 nbhd_demo = nbhd_demo.dropna(subset=[demo_col_name, "crime_rate_per_1k", "total_pop"])
 
-nbhd_sel = alt.selection_point(fields=["neighborhood"])
-
 bubble_pts = (
     alt.Chart(nbhd_demo)
     .mark_circle(stroke="#fff", strokeWidth=1.5)
@@ -612,13 +708,16 @@ bubble_pts = (
             title="Incidents / 1,000 residents",
             axis=alt.Axis(grid=False),
         ),
-        size=alt.Size("total_pop:Q", scale=alt.Scale(range=[60, 1800]), legend=None),
-        color=alt.condition(
-            nbhd_sel,
-            alt.Color("crime_rate_per_1k:Q", scale=alt.Scale(scheme="reds"), legend=None),
-            alt.value("#d4d4d4"),
+        size=alt.Size(
+            "total_pop:Q",
+            scale=alt.Scale(range=[60, 1800]),
+            legend=alt.Legend(title="Population", format=","),
         ),
-        opacity=alt.condition(nbhd_sel, alt.value(0.92), alt.value(0.35)),
+        color=alt.Color(
+            "crime_rate_per_1k:Q",
+            scale=alt.Scale(scheme="reds"),
+            legend=None,
+        ),
         tooltip=[
             alt.Tooltip("neighborhood:N", title="Neighborhood"),
             alt.Tooltip(f"{demo_col_name}:Q", title=demo_label, format=demo_fmt),
@@ -626,7 +725,6 @@ bubble_pts = (
             alt.Tooltip("total_pop:Q", title="Population", format=","),
         ],
     )
-    .add_params(nbhd_sel)
 )
 
 bubble_lbl = (
@@ -636,91 +734,12 @@ bubble_lbl = (
         x=alt.X(f"{demo_col_name}:Q"),
         y=alt.Y("crime_rate_per_1k:Q"),
         text=alt.Text("neighborhood:N"),
-        opacity=alt.condition(nbhd_sel, alt.value(0.85), alt.value(0.18)),
-    )
-)
-
-# Linked breakdown: severity mix for selected neighborhood
-_df_nbhd_ucr = (
-    df[df["neighborhood"].notna()]
-    .groupby(["neighborhood", "UCR_PART"])
-    .size()
-    .reset_index(name="count")
-)
-
-sev_breakdown = (
-    alt.Chart(_df_nbhd_ucr)
-    .mark_bar()
-    .encode(
-        y=alt.Y(
-            "UCR_PART:N",
-            sort=UCR_ORDER,
-            title="",
-            axis=alt.Axis(grid=False),
-        ),
-        x=alt.X("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
-        color=alt.Color("UCR_PART:N", scale=ucr_scale, legend=None),
-        tooltip=[
-            alt.Tooltip("UCR_PART:N", title="Severity"),
-            alt.Tooltip("count:Q", title="Incidents", format=","),
-        ],
-    )
-    .transform_filter(nbhd_sel)
-    .properties(
-        height=180,
-        title=alt.TitleParams("Severity breakdown", fontSize=12, color="#999"),
-    )
-)
-
-# Linked breakdown: top 8 offense types for selected neighborhood
-_top8_city = (
-    df[df["neighborhood"].notna()]
-    .groupby("OFFENSE_CODE_GROUP")
-    .size()
-    .nlargest(8)
-    .index.tolist()
-)
-_df_nbhd_type = (
-    df[
-        df["neighborhood"].notna()
-        & df["OFFENSE_CODE_GROUP"].isin(_top8_city)
-    ]
-    .groupby(["neighborhood", "OFFENSE_CODE_GROUP"])
-    .size()
-    .reset_index(name="count")
-)
-
-type_breakdown = (
-    alt.Chart(_df_nbhd_type)
-    .mark_bar()
-    .encode(
-        y=alt.Y(
-            "OFFENSE_CODE_GROUP:N",
-            sort="-x",
-            title="",
-            axis=alt.Axis(grid=False, labelLimit=240),
-        ),
-        x=alt.X("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
-        color=alt.Color("OFFENSE_CODE_GROUP:N", scale=alt.Scale(scheme="category20"), legend=None),
-        tooltip=[
-            alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
-            alt.Tooltip("count:Q", title="Incidents", format=","),
-        ],
-    )
-    .transform_filter(nbhd_sel)
-    .properties(
-        height=250,
-        title=alt.TitleParams("Top offense types", fontSize=12, color="#999"),
     )
 )
 
 bubble_chart = (bubble_pts + bubble_lbl).properties(
-    height=460,
+    height=500,
     title=f"{demo_label} vs. Crime Rate by Neighborhood",
 )
-detail_panel = alt.vconcat(sev_breakdown, type_breakdown, spacing=20)
 
-st.altair_chart(
-    alt.hconcat(bubble_chart, detail_panel, spacing=40),
-    use_container_width=True,
-)
+st.altair_chart(bubble_chart, use_container_width=True)
