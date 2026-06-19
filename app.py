@@ -86,9 +86,9 @@ st.markdown(
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
+        justify-content: flex-end;
         text-align: center;
-        padding: 3rem 2rem;
+        padding: 3rem 2rem 10vh 2rem;
         margin: -1rem -1rem 2rem -1rem;
         position: relative;
     }}
@@ -162,23 +162,26 @@ st.markdown(
         <p class="hero-sub">Exploring patterns, places, and people behind the data</p>
         <div class="hero-stats">
           <div class="hero-stat">
-            <div class="hero-stat-val">{_n:,}</div>
             <div class="hero-stat-lbl">Incidents in View</div>
+            <div class="hero-stat-val">{_n:,}</div>
           </div>
           <div class="hero-stat">
-            <div class="hero-stat-val">{_top_type}</div>
             <div class="hero-stat-lbl">Most Common Type</div>
+            <div class="hero-stat-val">{_top_type}</div>
           </div>
           <div class="hero-stat">
-            <div class="hero-stat-val">{_serious_pct}</div>
             <div class="hero-stat-lbl">Serious Crime</div>
+            <div class="hero-stat-val">{_serious_pct}</div>
           </div>
           <div class="hero-stat">
-            <div class="hero-stat-val">{_noncrim_pct}</div>
             <div class="hero-stat-lbl">Non-Criminal</div>
+            <div class="hero-stat-val">{_noncrim_pct}</div>
           </div>
         </div>
-        <div class="scroll-hint">&#8595;</div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:0.15rem;">
+          <span style="color:rgba(255,255,255,0.75);font-size:0.78rem;text-transform:uppercase;letter-spacing:0.12em;text-shadow:0 1px 4px rgba(0,0,0,0.7);">Scroll</span>
+          <div class="scroll-hint">&#8595;</div>
+        </div>
       </div>
     </div>
     """,
@@ -308,7 +311,7 @@ dow_bars = (
 
 st.altair_chart(
     alt.hconcat(hour_bars, dow_bars, spacing=40).resolve_scale(color="shared"),
-    use_container_width=False,
+    use_container_width=True,
 )
 
 # ── Section 3: What is happening and is it changing? ─────────────────────────
@@ -328,7 +331,10 @@ df_type_sev = (
 _type_totals = df_type_sev.groupby("OFFENSE_CODE_GROUP")["count"].sum()
 top15 = _type_totals.nlargest(15).index.tolist()
 type_order = _type_totals.loc[top15].sort_values().index.tolist()
-df_type_sev = df_type_sev[df_type_sev["OFFENSE_CODE_GROUP"].isin(top15)]
+df_type_sev = df_type_sev[
+    df_type_sev["OFFENSE_CODE_GROUP"].isin(top15)
+    & (df_type_sev["UCR_PART"] != "Unclassified")
+]
 
 df_year_sev = (
     df[df["OFFENSE_CODE_GROUP"].isin(top15)]
@@ -336,6 +342,23 @@ df_year_sev = (
     .size()
     .reset_index(name="count")
 )
+df_year_sev = df_year_sev[df_year_sev["UCR_PART"] != "Unclassified"]
+
+_n_all_off = len(offense_types_all)
+_n_sel_off = len(sel_offense)
+_ps = "display:inline-block;background:#2c5282;color:white;padding:2px 9px;border-radius:12px;font-size:11px;margin:2px 3px;"
+if _n_sel_off == _n_all_off:
+    _pills_html = f'<span style="{_ps.replace("#2c5282","#276749")}">All {_n_all_off} offense types</span>'
+elif _n_sel_off == 0:
+    _pills_html = '<span style="color:#888;font-size:12px;">No offense types selected</span>'
+elif _n_sel_off <= 8:
+    _pills_html = " ".join(f'<span style="{_ps}">{t}</span>' for t in sorted(sel_offense))
+else:
+    _shown_off = sorted(sel_offense)[:6]
+    _more_off = _n_sel_off - 6
+    _pills_html = " ".join(f'<span style="{_ps}">{t}</span>' for t in _shown_off)
+    _pills_html += f' <span style="display:inline-block;background:#555;color:white;padding:2px 9px;border-radius:12px;font-size:11px;margin:2px 3px;">+{_more_off} more</span>'
+st.markdown(f'<div style="margin:0.4rem 0 1rem 0;">{_pills_html}</div>', unsafe_allow_html=True)
 
 type_sel = alt.selection_point(fields=["OFFENSE_CODE_GROUP"])
 legend_sel_3 = alt.selection_point(fields=["UCR_PART"], bind="legend")
@@ -394,7 +417,7 @@ year_trend = (
 
 st.altair_chart(
     alt.hconcat(type_bar, year_trend, spacing=50).resolve_scale(color="shared"),
-    use_container_width=False,
+    use_container_width=True,
 )
 
 # ── Section 4: Map ────────────────────────────────────────────────────────────
@@ -402,22 +425,8 @@ st.altair_chart(
 st.markdown("---")
 st.markdown("## Where does crime happen?")
 st.markdown(
-    "Map filters are independent of the sidebar. "
-    "**Add offense types below** to display incidents on the map."
+    "Use the **Year**, **Severity**, and **Offense Type** filters in the sidebar to control what appears on the map."
 )
-
-_mc1, _mc2, _mc3 = st.columns([1, 1, 2])
-with _mc1:
-    map_years = st.multiselect("Year", years_all, default=years_all, key="map_yr")
-with _mc2:
-    map_sev = st.multiselect("Severity", ucr_avail, default=ucr_avail, key="map_sev")
-with _mc3:
-    map_types = st.multiselect(
-        "Offense Type (add to display)",
-        offense_types_all,
-        default=[],
-        key="map_typ",
-    )
 
 _UCR_RGB = {
     "Serious Crime":     [227, 26,  28],
@@ -426,26 +435,23 @@ _UCR_RGB = {
     "Unclassified":      [150, 150, 150],
 }
 
-if map_types:
-    _df_m = df_raw[
-        df_raw["YEAR"].isin(map_years)
-        & df_raw["UCR_PART"].isin(map_sev)
-        & df_raw["OFFENSE_CODE_GROUP"].isin(map_types)
-        & df_raw["Lat"].notna()
-        & df_raw["Long"].notna()
-        & (df_raw["Lat"] != 0)
-        & (df_raw["Long"] != 0)
-    ].copy()
+_df_m = df[
+    df["Lat"].notna()
+    & df["Long"].notna()
+    & (df["Lat"] != 0)
+    & (df["Long"] != 0)
+].copy()
 
-    _df_m["_r"] = _df_m["UCR_PART"].map(lambda x: _UCR_RGB.get(x, [150,150,150])[0])
-    _df_m["_g"] = _df_m["UCR_PART"].map(lambda x: _UCR_RGB.get(x, [150,150,150])[1])
-    _df_m["_b"] = _df_m["UCR_PART"].map(lambda x: _UCR_RGB.get(x, [150,150,150])[2])
+_df_m["_r"] = _df_m["UCR_PART"].map(lambda x: _UCR_RGB.get(x, [150,150,150])[0])
+_df_m["_g"] = _df_m["UCR_PART"].map(lambda x: _UCR_RGB.get(x, [150,150,150])[1])
+_df_m["_b"] = _df_m["UCR_PART"].map(lambda x: _UCR_RGB.get(x, [150,150,150])[2])
 
-    _df_pdk = _df_m[[
-        "Lat", "Long", "UCR_PART", "OFFENSE_DESCRIPTION",
-        "neighborhood", "OCCURRED_ON_DATE", "_r", "_g", "_b",
-    ]].reset_index(drop=True)
+_df_pdk = _df_m[[
+    "Lat", "Long", "UCR_PART", "OFFENSE_DESCRIPTION",
+    "neighborhood", "OCCURRED_ON_DATE", "_r", "_g", "_b",
+]].reset_index(drop=True)
 
+if len(_df_pdk) > 0:
     st.pydeck_chart(
         pdk.Deck(
             layers=[
@@ -471,7 +477,7 @@ if map_types:
     )
     st.caption(f"Showing {len(_df_pdk):,} incidents")
 else:
-    st.info("Select one or more offense types above to plot incidents on the map.")
+    st.info("No incidents match the current sidebar filters.")
 
 # ── Section 5: Severity by neighborhood (top 12) ──────────────────────────────
 
