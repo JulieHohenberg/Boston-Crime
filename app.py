@@ -156,7 +156,7 @@ st.markdown(
     }}
     .hero-sub {{
         color: rgba(255,255,255,0.88);
-        font-size: 1.75rem;
+        font-size: 2.2rem;
         font-weight: 400;
         text-shadow: 0 1px 8px rgba(0,0,0,0.7);
         margin: 0;
