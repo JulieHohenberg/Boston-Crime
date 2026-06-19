@@ -1,9 +1,11 @@
 import base64
+import io
 from pathlib import Path
 
 import altair as alt
 import pandas as pd
 import pydeck as pdk
+import requests
 import streamlit as st
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -30,11 +32,20 @@ DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 
+_LOCAL_CSV = Path("eda/boston_crime_compiled.csv")
+_GDRIVE_ID = "1LEs1-R34OPROD3jJXO-vstMDcFssNOui"
+
 @st.cache_data
 def load_data():
-    df = pd.read_csv("eda/boston_crime_compiled.csv", encoding="latin-1", low_memory=False)
-    df["UCR_PART"] = df["UCR_PART"].map(UCR_MAP).fillna("Unclassified")
-    return df
+    if _LOCAL_CSV.exists():
+        raw = pd.read_csv(_LOCAL_CSV, encoding="latin-1", low_memory=False)
+    else:
+        url = f"https://drive.google.com/uc?export=download&id={_GDRIVE_ID}"
+        r = requests.get(url, timeout=60)
+        r.raise_for_status()
+        raw = pd.read_csv(io.StringIO(r.content.decode("latin-1")), low_memory=False)
+    raw["UCR_PART"] = raw["UCR_PART"].map(UCR_MAP).fillna("Unclassified")
+    return raw
 
 df_raw = load_data()
 
