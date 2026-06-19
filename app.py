@@ -329,8 +329,8 @@ st.altair_chart(
 st.markdown("---")
 st.markdown("## What is happening, when?")
 st.markdown(
-    "**Click an offense type bar** to see when that type of crime occurs — "
-    "by hour of day and day of week. No selection shows the overall pattern."
+    "**Click an offense type bar** to see when that type of crime occurs, "
+    "broken down by hour of day and day of week. No selection shows the overall pattern."
 )
 
 _excl_hm = {"Other"}
@@ -347,6 +347,14 @@ _type_order_hm = (
     .tolist()
 )
 _type_tot_hm = _type_tot_hm[_type_tot_hm["OFFENSE_CODE_GROUP"].isin(_top_types_hm)]
+
+_type_ucr_mode = (
+    df[df["OFFENSE_CODE_GROUP"].isin(_top_types_hm)]
+    .groupby("OFFENSE_CODE_GROUP")["UCR_PART"]
+    .agg(lambda x: x.mode().iloc[0] if len(x) > 0 else "Unclassified")
+    .reset_index()
+)
+_type_tot_hm = _type_tot_hm.merge(_type_ucr_mode, on="OFFENSE_CODE_GROUP", how="left")
 
 _df_hm_raw = df[
     df["OFFENSE_CODE_GROUP"].isin(_top_types_hm)
@@ -367,14 +375,11 @@ type_hm_bar = (
             axis=alt.Axis(grid=False, labelLimit=400),
         ),
         x=alt.X("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
-        color=alt.Color(
-            "OFFENSE_CODE_GROUP:N",
-            scale=alt.Scale(scheme="category20"),
-            legend=None,
-        ),
+        color=alt.Color("UCR_PART:N", scale=ucr_scale, legend=alt.Legend(title="Severity")),
         opacity=alt.condition(type_hm_sel, alt.value(1.0), alt.value(0.3)),
         tooltip=[
             alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
+            alt.Tooltip("UCR_PART:N", title="Severity"),
             alt.Tooltip("count:Q", title="Incidents", format=","),
         ],
     )
@@ -382,7 +387,7 @@ type_hm_bar = (
     .properties(
         height=420,
         title=alt.TitleParams(
-            "Click a bar to filter the heatmap below ↓", fontSize=12, color="#999"
+            "Click a bar to filter the heatmap below", fontSize=12, color="#999"
         ),
     )
 )
@@ -694,6 +699,8 @@ for _dc, _, _ in DEMO_CONFIGS:
 nbhd_demo["crime_rate_per_1k"] = nbhd_demo["crime_count"] / nbhd_demo["total_pop"] * 1000
 nbhd_demo = nbhd_demo.dropna(subset=[demo_col_name, "crime_rate_per_1k", "total_pop"])
 
+_bubble_zoom = alt.selection_interval(bind="scales")
+
 bubble_pts = (
     alt.Chart(nbhd_demo)
     .mark_circle(stroke="#fff", strokeWidth=1.5)
@@ -725,6 +732,7 @@ bubble_pts = (
             alt.Tooltip("total_pop:Q", title="Population", format=","),
         ],
     )
+    .add_params(_bubble_zoom)
 )
 
 bubble_lbl = (
