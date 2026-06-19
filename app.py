@@ -280,7 +280,7 @@ st.markdown("---")
 st.markdown("## When does Boston stay busy?")
 st.markdown(
     "Incidents peak in the late afternoon. "
-    "**Drag across the hour chart** to filter the day-of-week breakdown. "
+    "**Click an hour bar** to filter the day-of-week breakdown to that hour. "
     "**Click a legend item** to isolate a severity in both charts."
 )
 
@@ -289,7 +289,7 @@ hour_lbl_expr = (
     "datum.value == 12 ? '12 PM' : (datum.value - 12) + ' PM'"
 )
 
-brush = alt.selection_interval(encodings=["x"])
+hour_click = alt.selection_point(fields=["HOUR"])
 legend_sel_2 = alt.selection_point(fields=["UCR_PART"], bind="legend")
 
 df_time = df[["HOUR", "DAY_OF_WEEK", "UCR_PART"]].dropna().copy()
@@ -310,10 +310,10 @@ hour_bars = (
             alt.Tooltip("count():Q", title="Incidents", format=","),
         ],
     )
-    .add_params(brush, legend_sel_2)
+    .add_params(hour_click, legend_sel_2)
     .properties(
         width=520, height=340,
-        title=alt.TitleParams("Drag to select a time window", fontSize=12, color="#999"),
+        title=alt.TitleParams("Click an hour bar to filter the day chart", fontSize=12, color="#999"),
     )
 )
 
@@ -332,11 +332,11 @@ dow_bars = (
             alt.Tooltip("count():Q", title="Incidents", format=","),
         ],
     )
-    .transform_filter(brush)
+    .transform_filter(hour_click)
     .properties(
         width=400, height=340,
         title=alt.TitleParams(
-            "Day-of-week breakdown (filtered by selected hours)", fontSize=12, color="#999"
+            "Day-of-week breakdown for selected hour(s)", fontSize=12, color="#999"
         ),
     )
 )
