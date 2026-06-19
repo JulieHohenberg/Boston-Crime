@@ -1,462 +1,565 @@
-import streamlit as st
+import base64
+from pathlib import Path
+
+import altair as alt
 import pandas as pd
+import pydeck as pdk
+import streamlit as st
 
-st.set_page_config(page_title="Boston Crime Dashboard", layout="wide")
-st.title("Boston Crime Dashboard")
+# ── Page config ───────────────────────────────────────────────────────────────
 
-# ── URL helpers ──────────────────────────────────────────────────────────────────
-
-CRIME_URL = "https://drive.google.com/uc?id=18JWRExaiRkPVQtZfs88f-fTqHPiI1p3_&export=download"
-OFFENSE_CODES_URL = "https://drive.google.com/uc?id=1RoXGLR85jhnttDGUd0BAJD9xX6t22IsN&export=download"
-
-def _gdx(file_id):
-    return f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
-
-SUMMARY_ROWS = {"United States", "Massachusetts", "Massachusets", "Boston"}
-
-
-def _nbhd(df, col_names):
-    """Rename columns and strip US/MA/Boston summary rows."""
-    df = df.copy()
-    df.columns = col_names
-    df = df[~df["neighborhood"].isin(SUMMARY_ROWS)]
-    df = df.dropna(subset=["neighborhood"])
-    df["neighborhood"] = df["neighborhood"].astype(str).str.strip()
-    return df.reset_index(drop=True)
-
-
-# ── Crime loaders ────────────────────────────────────────────────────────────────
-
-BOSTON_NEIGHBORHOODS_URL = (
-    "https://data.boston.gov/dataset/bf1a7b50-4c72-4637-b0fa-11d632e3aff1"
-    "/resource/e5849875-a6f6-4c9c-9d8a-5048b0fbd03e"
-    "/download/boston_neighborhood_boundaries.geojson"
+st.set_page_config(
+    page_title="Boston Crime",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
+# ── Hero ──────────────────────────────────────────────────────────────────────
+
+_hero_path = Path("assets/cop_background_faded.png")
+if _hero_path.exists():
+    _hero_b64 = base64.b64encode(_hero_path.read_bytes()).decode()
+    _hero_css = f'url("data:image/png;base64,{_hero_b64}") center / cover no-repeat'
+else:
+    _hero_css = "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)"
+
+st.markdown(
+    f"""
+    <style>
+    [data-testid="stAppViewContainer"] > .main {{padding-top: 0 !important;}}
+    .hero-section {{
+        background: {_hero_css};
+        min-height: 400px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 3rem 2rem;
+        margin: -1rem -1rem 2rem -1rem;
+    }}
+    .hero-title {{
+        color: white;
+        font-size: 3.5rem;
+        font-weight: 800;
+        text-shadow: 0 2px 16px rgba(0,0,0,0.85);
+        margin: 0 0 0.5rem 0;
+        letter-spacing: -0.02em;
+    }}
+    .hero-sub {{
+        color: rgba(255,255,255,0.88);
+        font-size: 1.25rem;
+        text-shadow: 0 1px 8px rgba(0,0,0,0.7);
+        margin: 0;
+        font-weight: 400;
+    }}
+    </style>
+    <div class="hero-section">
+        <div class="hero-title">Boston Crime</div>
+        <p class="hero-sub">Exploring patterns, places, and people behind the data</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+UCR_MAP = {
+    "Part One": "Serious Crime",
+    "Part Two": "Non-Violent Crime",
+    "Part Three": "Non-Criminal",
+    "Other": "Unclassified",
+}
+UCR_ORDER = ["Serious Crime", "Non-Violent Crime", "Non-Criminal", "Unclassified"]
+UCR_COLORS = ["#d73027", "#fc8d59", "#fee090", "#aaaaaa"]
+
+DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+# ── Data loading ──────────────────────────────────────────────────────────────
 
 @st.cache_data
-def load_crime():
-    import requests, io, geopandas as gpd
+def load_data():
+    df = pd.read_csv("eda/boston_crime_compiled.csv", encoding="latin-1", low_memory=False)
+    df["UCR_PART"] = df["UCR_PART"].map(UCR_MAP).fillna("Unclassified")
+    return df
 
-    df = pd.read_csv(CRIME_URL, encoding="latin-1")
-    df = df.sample(n=10_000, random_state=42).reset_index(drop=True)
+df_raw = load_data()
 
-    # Load neighborhood polygons
-    r = requests.get(BOSTON_NEIGHBORHOODS_URL)
-    r.raise_for_status()
-    neighborhoods = gpd.read_file(io.BytesIO(r.content))[["name", "geometry"]]
+# ── Sidebar filters ───────────────────────────────────────────────────────────
 
-    # Rows with valid Boston-area coordinates
-    has_coords = (
-        df["Lat"].notna() & df["Long"].notna()
-        & (df["Lat"] != 0) & (df["Long"] != 0)
+st.sidebar.header("Filters")
+
+years_all = sorted(df_raw["YEAR"].dropna().unique().astype(int).tolist())
+sel_years = st.sidebar.multiselect("Year", years_all, default=years_all)
+
+ucr_avail = [u for u in UCR_ORDER if u in df_raw["UCR_PART"].unique()]
+sel_ucr = st.sidebar.multiselect("Severity", ucr_avail, default=ucr_avail)
+
+df = df_raw[df_raw["YEAR"].isin(sel_years) & df_raw["UCR_PART"].isin(sel_ucr)].copy()
+
+ucr_scale = alt.Scale(domain=UCR_ORDER, range=UCR_COLORS)
+ucr_color = alt.Color(
+    "UCR_PART:N", scale=ucr_scale, legend=alt.Legend(title="Severity")
+)
+
+# ── Section 1: Big picture ────────────────────────────────────────────────────
+
+st.markdown("## What is happening overall?")
+
+m1, m2, m3, m4, m5 = st.columns(5)
+with m1:
+    st.metric("Total Incidents", f"{len(df):,}")
+with m2:
+    st.metric("Shooting Incidents", f"{df['SHOOTING'].eq('Y').sum():,}")
+with m3:
+    top_off = (
+        df["OFFENSE_CODE_GROUP"].value_counts().idxmax() if len(df) else "N/A"
     )
-    df_geo = df[has_coords].copy()
-    df_no_geo = df[~has_coords].copy()
-
-    # Point-in-polygon spatial join
-    gdf = gpd.GeoDataFrame(
-        df_geo,
-        geometry=gpd.points_from_xy(df_geo["Long"], df_geo["Lat"]),
-        crs="EPSG:4326",
+    st.metric("Top Offense", top_off)
+with m4:
+    top_nbhd = (
+        df["neighborhood"].value_counts().idxmax()
+        if df["neighborhood"].notna().any()
+        else "N/A"
     )
-    joined = gpd.sjoin(gdf, neighborhoods, how="left", predicate="within")
-    joined = joined.rename(columns={"name": "neighborhood"})
-    joined = joined.drop(columns=["geometry", "index_right"], errors="ignore")
+    st.metric("Most Active Neighborhood", top_nbhd)
+with m5:
+    top_yr = str(int(df["YEAR"].value_counts().idxmax())) if len(df) else "N/A"
+    st.metric("Most Active Year", top_yr)
 
-    df_no_geo["neighborhood"] = pd.NA
-    return pd.concat([pd.DataFrame(joined), df_no_geo], ignore_index=True)
+# ── Section 2: Time patterns ──────────────────────────────────────────────────
 
+st.markdown("---")
+st.markdown("## When does Boston stay busy?")
+st.markdown(
+    "Incidents broken down by hour of day and day of week. "
+    "Drag on the hour chart to filter the day chart by time window."
+)
 
-@st.cache_data
-def load_offense_codes():
-    return pd.read_csv(OFFENSE_CODES_URL, encoding="latin-1")
+hour_lbl_expr = (
+    "datum.value == 0 ? '12 AM' : datum.value < 12 ? datum.value + ' AM' : "
+    "datum.value == 12 ? '12 PM' : (datum.value - 12) + ' PM'"
+)
 
+brush = alt.selection_interval(encodings=["x"])
+legend_sel_2 = alt.selection_point(fields=["UCR_PART"], bind="legend")
 
-@st.cache_data
-def load_merged():
-    crime = load_crime()
-    offense_codes = load_offense_codes()
-    crime_code_col = next(
-        (c for c in crime.columns if "offense_code" in c.lower() or c.lower() == "code"), None
+df_time = df[["HOUR", "DAY_OF_WEEK", "UCR_PART"]].dropna().copy()
+
+hour_bars = (
+    alt.Chart(df_time)
+    .mark_bar()
+    .encode(
+        x=alt.X(
+            "HOUR:O",
+            title="Hour of Day",
+            axis=alt.Axis(labelExpr=hour_lbl_expr, labelAngle=-45, grid=False),
+        ),
+        y=alt.Y("count():Q", title="Incidents", axis=alt.Axis(grid=False)),
+        color=alt.condition(brush, ucr_color, alt.value("#d0d0d0")),
+        opacity=alt.condition(legend_sel_2, alt.value(1.0), alt.value(0.07)),
+        tooltip=[
+            alt.Tooltip("HOUR:O", title="Hour"),
+            alt.Tooltip("UCR_PART:N", title="Severity"),
+            alt.Tooltip("count():Q", title="Incidents", format=","),
+        ],
     )
-    offense_code_col = next(
-        (c for c in offense_codes.columns if "code" in c.lower()), None
+    .add_params(brush, legend_sel_2)
+    .properties(
+        width=600,
+        height=300,
+        title=alt.TitleParams("Drag to select a time window", fontSize=12, color="#999"),
     )
-    if crime_code_col and offense_code_col:
-        return crime.merge(offense_codes, left_on=crime_code_col, right_on=offense_code_col, how="left")
-    return crime.copy()
+)
 
+dow_bars = (
+    alt.Chart(df_time)
+    .mark_bar()
+    .encode(
+        x=alt.X(
+            "DAY_OF_WEEK:N",
+            sort=DAY_ORDER,
+            title="Day of Week",
+            axis=alt.Axis(labelAngle=-30, grid=False),
+        ),
+        y=alt.Y("count():Q", title="Incidents", axis=alt.Axis(grid=False)),
+        color=alt.condition(brush, ucr_color, alt.value("#d0d0d0")),
+        opacity=alt.condition(legend_sel_2, alt.value(1.0), alt.value(0.07)),
+        tooltip=[
+            alt.Tooltip("DAY_OF_WEEK:N", title="Day"),
+            alt.Tooltip("UCR_PART:N", title="Severity"),
+            alt.Tooltip("count():Q", title="Incidents", format=","),
+        ],
+    )
+    .transform_filter(brush)
+    .properties(
+        width=320,
+        height=300,
+        title=alt.TitleParams(
+            "Distribution within selected hours", fontSize=12, color="#999"
+        ),
+    )
+)
 
-# ── Census loaders ───────────────────────────────────────────────────────────────
+st.altair_chart(
+    alt.hconcat(hour_bars, dow_bars, spacing=40).resolve_scale(color="shared"),
+    use_container_width=False,
+)
 
-@st.cache_data
-def load_age():
-    df = pd.read_excel(_gdx("1unTPjKhz7_FkCjhtURZ0Ja-n7YRBg__V"), header=0)
-    return _nbhd(df, [
-        "neighborhood", "total_pop", "median_age",
-        "count_0to9", "pct_0to9", "count_10to19", "pct_10to19",
-        "count_20to34", "pct_20to34", "count_35to54", "pct_35to54",
-        "count_55to64", "pct_55to64", "count_65plus", "pct_65plus",
-    ])
+# ── Section 3: Offense types and trends ──────────────────────────────────────
 
+st.markdown("---")
+st.markdown("## What is happening, and is it changing?")
+st.markdown("Click an offense type to explore its year-over-year trend.")
 
-@st.cache_data
-def load_education():
-    df = pd.read_excel(_gdx("1isPtMf-mtfnt3wmb8-yYslGeZe3rjroL"), header=0)
-    return _nbhd(df, [
-        "neighborhood", "edu_pop_25plus",
-        "count_less_than_hs", "pct_less_than_hs",
-        "count_hs_grad", "pct_hs_grad",
-        "count_some_college", "pct_some_college",
-        "count_bachelors_plus", "pct_bachelors_plus",
-    ])
+top_types = (
+    df.groupby("OFFENSE_CODE_GROUP")
+    .size()
+    .reset_index(name="count")
+    .nlargest(15, "count")
+)
+type_order = top_types.sort_values("count")["OFFENSE_CODE_GROUP"].tolist()
 
+type_sel = alt.selection_point(fields=["OFFENSE_CODE_GROUP"])
 
-@st.cache_data
-def load_hh_income():
-    df = pd.read_excel(_gdx("1MaZDSUw60OGHaJRstyA-q-fwKu-PBUdA"), header=0)
-    return _nbhd(df, [
-        "neighborhood", "median_hh_income", "total_hh",
-        "count_under15k", "pct_under15k",
-        "count_15k_25k", "pct_15k_25k",
-        "count_25k_35k", "pct_25k_35k",
-        "count_35k_50k", "pct_35k_50k",
-        "count_50k_75k", "pct_50k_75k",
-        "count_75k_100k", "pct_75k_100k",
-        "count_100k_150k", "pct_100k_150k",
-        "count_150k_plus", "pct_150k_plus",
-    ])
+type_bar = (
+    alt.Chart(top_types)
+    .mark_bar()
+    .encode(
+        y=alt.Y(
+            "OFFENSE_CODE_GROUP:N",
+            sort=type_order,
+            title="",
+            axis=alt.Axis(grid=False),
+        ),
+        x=alt.X("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
+        color=alt.condition(type_sel, alt.value("#1a6b9a"), alt.value("#d0d0d0")),
+        tooltip=[
+            alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
+            alt.Tooltip("count:Q", title="Incidents", format=","),
+        ],
+    )
+    .add_params(type_sel)
+    .properties(
+        width=400,
+        height=380,
+        title=alt.TitleParams("Click to filter trend", fontSize=12, color="#999"),
+    )
+)
 
+df_type_year = (
+    df.groupby(["OFFENSE_CODE_GROUP", "YEAR"])
+    .size()
+    .reset_index(name="count")
+)
 
-@st.cache_data
-def load_geo_mobility():
-    df = pd.read_excel(_gdx("1WhArm_0RDeArrZzIxlqUPNw_8_5s65E7"), header=0)
-    return _nbhd(df, [
-        "neighborhood", "total_mobility",
-        "count_same_house", "pct_same_house",
-        "count_moved_same_county", "pct_moved_same_county",
-        "count_moved_diff_county", "pct_moved_diff_county",
-        "count_moved_diff_state", "pct_moved_diff_state",
-        "count_moved_abroad", "pct_moved_abroad",
-    ])
+year_trend = (
+    alt.Chart(df_type_year)
+    .mark_line(point=True, strokeWidth=2.5)
+    .encode(
+        x=alt.X("YEAR:O", title="Year", axis=alt.Axis(grid=False)),
+        y=alt.Y("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
+        color=alt.Color("OFFENSE_CODE_GROUP:N", legend=None),
+        tooltip=[
+            alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
+            alt.Tooltip("YEAR:O", title="Year"),
+            alt.Tooltip("count:Q", title="Incidents", format=","),
+        ],
+    )
+    .transform_filter(type_sel)
+    .properties(
+        width=460,
+        height=380,
+        title=alt.TitleParams(
+            "Year over year trend for selected type", fontSize=12, color="#999"
+        ),
+    )
+)
 
+st.altair_chart(
+    alt.hconcat(type_bar, year_trend, spacing=50).resolve_scale(color="independent"),
+    use_container_width=False,
+)
 
-@st.cache_data
-def load_group_quarters():
-    df = pd.read_excel(_gdx("1F-QWD_kTl9PeYsyQIhUoZWXvLZLiZipB"), header=0)
-    return _nbhd(df, ["neighborhood", "group_quarters_pop", "pct_group_quarters"])
+# ── Section 4: Map ────────────────────────────────────────────────────────────
 
+st.markdown("---")
+st.markdown("## Where does crime happen?")
+st.markdown(
+    "Use the filters below to explore the geographic spread of crime across Boston. "
+    "These filters are independent of the sidebar."
+)
 
-@st.cache_data
-def load_industries():
-    df = pd.read_excel(_gdx("1F1HjR5hp5A5OD21bld9iVG6i4nQNNnvJ"), header=0)
-    return _nbhd(df, [
-        "neighborhood", "employed_pop",
-        "count_finance", "pct_finance",
-        "count_professional", "pct_professional",
-        "count_arts_entertainment", "pct_arts_entertainment",
-        "count_admin", "pct_admin",
-        "count_food_accommodation", "pct_food_accommodation",
-        "count_other_services", "pct_other_services",
-        "count_education_industry", "pct_education_industry",
-        "count_healthcare", "pct_healthcare",
-        "count_construction_mfg", "pct_construction_mfg",
-        "count_retail_wholesale", "pct_retail_wholesale",
-    ])
+_mc1, _mc2, _mc3 = st.columns([1, 1, 2])
+with _mc1:
+    map_years = st.multiselect("Year", years_all, default=years_all, key="map_yr")
+with _mc2:
+    map_sev = st.multiselect("Severity", ucr_avail, default=ucr_avail, key="map_sev")
+with _mc3:
+    off_types_all = sorted(df_raw["OFFENSE_CODE_GROUP"].dropna().unique().tolist())
+    map_types = st.multiselect(
+        "Offense Type", off_types_all, default=off_types_all, key="map_typ"
+    )
 
-
-@st.cache_data
-def load_labor_force():
-    # Cols 6-8 are empty trailing columns — drop them
-    df = pd.read_excel(_gdx("1GhjntDa_2IgK5ddeC-lV3nThOQXFhdS_"), header=0, usecols=range(6))
-    return _nbhd(df, [
-        "neighborhood", "pop_16plus", "civilian_labor_force",
-        "labor_force_participation_rate", "employed_civilians", "employment_rate",
-    ])
-
-
-@st.cache_data
-def load_nativity():
-    df = pd.read_excel(_gdx("1KccceUdTILgMRZr1GsSJB7EEaNyXbP_X"), header=0)
-    return _nbhd(df, [
-        "neighborhood", "total_nativity",
-        "count_us_born", "pct_us_born",
-        "count_born_pr_islands", "pct_born_pr_islands",
-        "count_born_abroad_american_parents", "pct_born_abroad_american_parents",
-        "count_naturalized", "pct_naturalized",
-        "count_not_citizen", "pct_not_citizen",
-    ])
-
-
-@st.cache_data
-def load_occupation():
-    df = pd.read_excel(_gdx("1JMr-KKYJqXM5mrNqiZXKyUtFGIAW6Paa"), header=0)
-    return _nbhd(df, [
-        "neighborhood", "employed_pop",
-        "count_mgmt_business", "pct_mgmt_business",
-        "count_computer_engineering", "pct_computer_engineering",
-        "count_education_legal_arts", "pct_education_legal_arts",
-        "count_healthcare_practitioner", "pct_healthcare_practitioner",
-        "count_service", "pct_service",
-        "count_sales_office", "pct_sales_office",
-        "count_natural_resources", "pct_natural_resources",
-        "count_production_transport", "pct_production_transport",
-    ])
-
-
-@st.cache_data
-def load_per_capita_income():
-    df = pd.read_excel(_gdx("1qujXXIRzYkBspYS91KIhKA3p5MIqw8ru"), header=0)
-    return _nbhd(df, ["neighborhood", "total_pop", "aggregate_income", "per_capita_income"])
-
-
-@st.cache_data
-def load_poverty_by_age():
-    # Two header rows — skip both and assign names manually
-    df = pd.read_excel(_gdx("1Mr1PBaXPtUUw9tB1a56TmXbtSJOElJQx"), header=None, skiprows=2)
-    return _nbhd(df, [
-        "neighborhood", "total_pop",
-        "under18_total", "under18_poverty", "under18_poverty_rate",
-        "age18to64_total", "age18to64_poverty", "age18to64_poverty_rate",
-        "age65plus_total", "age65plus_poverty", "age65plus_poverty_rate",
-    ])
-
-
-@st.cache_data
-def load_poverty():
-    df = pd.read_excel(_gdx("1rwsuBjnQvK0faC5gKPJR1bXK3X2jqjaY"), header=0)
-    return _nbhd(df, [
-        "neighborhood", "total_pop_poverty_status",
-        "total_in_poverty", "poverty_rate", "pct_boston_impoverished",
-    ])
-
-
-@st.cache_data
-def load_race_ethnicity():
-    df = pd.read_excel(_gdx("1VBNSoiOkzCnX4eNxSJFtw2IBIt3GUuF1"), header=0)
-    return _nbhd(df, [
-        "neighborhood", "total_pop",
-        "count_white", "pct_white",
-        "count_black", "pct_black",
-        "count_hispanic", "pct_hispanic",
-        "count_asian", "pct_asian",
-        "count_other_races", "pct_other_races",
-    ])
-
-
-@st.cache_data
-def load_school_enrollment():
-    df = pd.read_excel(_gdx("1_0KiJ6B_uO2pNi4NOhw1CsOoE3CYaGzr"), header=0)
-    return _nbhd(df, [
-        "neighborhood", "pop_age3plus",
-        "enrolled_total", "pct_enrolled",
-        "count_preschool", "pct_preschool",
-        "count_kindergarten", "pct_kindergarten",
-        "count_grade1to4", "pct_grade1to4",
-        "count_grade5to8", "pct_grade5to8",
-        "count_grade9to12", "pct_grade9to12",
-        "count_college_undergrad", "pct_college_undergrad",
-        "count_grad_school", "pct_grad_school",
-        "count_not_enrolled", "pct_not_enrolled",
-    ])
-
-
-@st.cache_data
-def load_vehicles_per_hh():
-    df = pd.read_excel(_gdx("1ZWhR44d56kG-1AlnbMYoGqML0cxFT_X2"), header=0)
-    return _nbhd(df, [
-        "neighborhood", "total_hh",
-        "count_0_vehicles", "pct_0_vehicles",
-        "count_1_vehicle", "pct_1_vehicle",
-        "count_2_vehicles", "pct_2_vehicles",
-        "count_3plus_vehicles", "pct_3plus_vehicles",
-    ])
-
-
-CENSUS_LOADERS = {
-    "Age": load_age,
-    "Educational Attainment": load_education,
-    "Household Income": load_hh_income,
-    "Geographic Mobility": load_geo_mobility,
-    "Group Quarters": load_group_quarters,
-    "Industries": load_industries,
-    "Labor Force": load_labor_force,
-    "Nativity": load_nativity,
-    "Occupation": load_occupation,
-    "Per Capita Income": load_per_capita_income,
-    "Poverty by Age": load_poverty_by_age,
-    "Poverty Rates": load_poverty,
-    "Race & Ethnicity": load_race_ethnicity,
-    "School Enrollment": load_school_enrollment,
-    "Vehicles per Household": load_vehicles_per_hh,
+_UCR_RGB = {
+    "Serious Crime": [215, 48, 39],
+    "Non-Violent Crime": [252, 141, 89],
+    "Non-Criminal": [215, 175, 0],
+    "Unclassified": [150, 150, 150],
 }
 
-# ── App tabs ─────────────────────────────────────────────────────────────────────
+_df_map_raw = df_raw[
+    df_raw["YEAR"].isin(map_years)
+    & df_raw["UCR_PART"].isin(map_sev)
+    & df_raw["OFFENSE_CODE_GROUP"].isin(map_types)
+    & df_raw["Lat"].notna()
+    & df_raw["Long"].notna()
+    & (df_raw["Lat"] != 0)
+    & (df_raw["Long"] != 0)
+].copy()
 
-crime_tab, census_tab = st.tabs(["Crime Dashboard", "Census Data"])
+_df_map_raw["_r"] = _df_map_raw["UCR_PART"].map(
+    lambda x: _UCR_RGB.get(x, [150, 150, 150])[0]
+)
+_df_map_raw["_g"] = _df_map_raw["UCR_PART"].map(
+    lambda x: _UCR_RGB.get(x, [150, 150, 150])[1]
+)
+_df_map_raw["_b"] = _df_map_raw["UCR_PART"].map(
+    lambda x: _UCR_RGB.get(x, [150, 150, 150])[2]
+)
 
-# ── Crime tab ────────────────────────────────────────────────────────────────────
+_pdk_cols = [
+    "Lat", "Long", "UCR_PART", "OFFENSE_DESCRIPTION",
+    "neighborhood", "OCCURRED_ON_DATE", "_r", "_g", "_b",
+]
+_df_pdk = _df_map_raw[_pdk_cols].reset_index(drop=True)
 
-with crime_tab:
-    try:
-        with st.spinner("Loading crime data (first load ~30s)..."):
-            merged = load_merged()
-        crime = load_crime()
-        st.success(f"Loaded 50,000-row sample of 319,073 total crime records")
-    except Exception as e:
-        st.error(f"Could not load crime data: {e}")
-        st.stop()
+map_layer = pdk.Layer(
+    "ScatterplotLayer",
+    _df_pdk,
+    get_position=["Long", "Lat"],
+    get_fill_color=["_r", "_g", "_b", 170],
+    get_radius=80,
+    radius_min_pixels=2,
+    radius_max_pixels=8,
+    pickable=True,
+)
 
-    with st.expander("Neighborhood assignment verification"):
-        assigned = crime["neighborhood"].notna().sum()
-        st.write(f"**{assigned:,}** of **{len(crime):,}** records assigned a neighborhood "
-                 f"({assigned / len(crime):.1%})")
-        st.write("Cross-tab: crimes per neighborhood × BPD district")
-        xtab = (
-            crime.dropna(subset=["neighborhood", "DISTRICT"])
-            .groupby(["neighborhood", "DISTRICT"])
-            .size()
-            .unstack(fill_value=0)
-        )
-        st.dataframe(xtab)
+map_view = pdk.ViewState(latitude=42.33, longitude=-71.07, zoom=11.5, pitch=0)
 
-    # Sidebar filters
-    st.sidebar.header("Crime Filters")
+st.pydeck_chart(
+    pdk.Deck(
+        layers=[map_layer],
+        initial_view_state=map_view,
+        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+        tooltip={
+            "text": "{OFFENSE_DESCRIPTION}\n{neighborhood}\n{OCCURRED_ON_DATE}"
+        },
+    ),
+    use_container_width=True,
+    height=540,
+)
+st.caption(f"Showing {len(_df_pdk):,} incidents")
 
-    year_col = next((c for c in merged.columns if c.upper() == "YEAR"), None)
-    if year_col:
-        years = sorted(merged[year_col].dropna().unique().tolist())
-        selected_years = st.sidebar.multiselect("Year", options=years, default=years)
-        merged = merged[merged[year_col].isin(selected_years)]
+# ── Section 5: Severity by neighborhood ──────────────────────────────────────
 
-    district_col = next((c for c in merged.columns if c.upper() == "DISTRICT"), None)
-    if district_col:
-        districts = sorted(merged[district_col].dropna().unique().tolist())
-        selected_districts = st.sidebar.multiselect("District", options=districts, default=districts)
-        merged = merged[merged[district_col].isin(selected_districts)]
+st.markdown("---")
+st.markdown("## How serious is crime by neighborhood?")
+st.markdown(
+    "Neighborhoods sorted left to right by number of serious (Part One) crimes."
+)
 
-    desc_col = next(
-        (c for c in merged.columns if "offense_description" in c.lower() or c.lower() == "offense_desc"), None
+nbhd_ucr = (
+    df[df["neighborhood"].notna()]
+    .groupby(["neighborhood", "UCR_PART"])
+    .size()
+    .reset_index(name="count")
+)
+
+_serious_counts = (
+    nbhd_ucr[nbhd_ucr["UCR_PART"] == "Serious Crime"]
+    .set_index("neighborhood")["count"]
+)
+nbhd_sev_order = _serious_counts.sort_values(ascending=False).index.tolist()
+_extras = [n for n in nbhd_ucr["neighborhood"].unique() if n not in nbhd_sev_order]
+nbhd_sev_order += _extras
+
+severity_chart = (
+    alt.Chart(nbhd_ucr)
+    .mark_bar()
+    .encode(
+        x=alt.X(
+            "neighborhood:N",
+            sort=nbhd_sev_order,
+            title="",
+            axis=alt.Axis(labelAngle=-45, grid=False),
+        ),
+        y=alt.Y("count:Q", title="Incidents", axis=alt.Axis(grid=False)),
+        color=alt.Color(
+            "UCR_PART:N",
+            scale=ucr_scale,
+            legend=alt.Legend(title="Severity"),
+        ),
+        tooltip=[
+            alt.Tooltip("neighborhood:N", title="Neighborhood"),
+            alt.Tooltip("UCR_PART:N", title="Severity"),
+            alt.Tooltip("count:Q", title="Incidents", format=","),
+        ],
     )
-    if not desc_col:
-        desc_col = next(
-            (c for c in merged.columns if c.upper() == "NAME" or "name" in c.lower()), None
-        )
+    .properties(
+        height=380,
+        title="Crime severity by neighborhood, sorted by serious crime",
+    )
+)
 
-    if desc_col:
-        offense_search = st.sidebar.text_input("Filter by offense (keyword)")
-        if offense_search:
-            merged = merged[merged[desc_col].str.contains(offense_search, case=False, na=False)]
+st.altair_chart(severity_chart, use_container_width=True)
 
-    st.subheader(f"Filtered data — {len(merged):,} rows")
-    st.dataframe(merged.head(5).fillna(""))
+# ── Section 6: Offense type heatmap ──────────────────────────────────────────
 
-    st.subheader("Charts")
+st.markdown("---")
+st.markdown("## What types of incidents define each neighborhood?")
 
-    if desc_col:
-        st.write("Crime count by offense type (top 15)")
-        offense_counts = (
-            merged[desc_col].dropna().value_counts().head(15)
-            .rename_axis("Offense").reset_index(name="Count")
-        )
-        st.bar_chart(offense_counts.set_index("Offense"))
+nbhd_type = (
+    df[df["neighborhood"].notna()]
+    .groupby(["neighborhood", "OFFENSE_CODE_GROUP"])
+    .size()
+    .reset_index(name="count")
+)
 
-    if district_col:
-        st.write("Crime count by district")
-        district_counts = (
-            merged[district_col].dropna().value_counts()
-            .rename_axis("District").reset_index(name="Count")
-        )
-        st.bar_chart(district_counts.set_index("District"))
+heatmap = (
+    alt.Chart(nbhd_type)
+    .mark_rect(stroke="white", strokeWidth=0.5)
+    .encode(
+        x=alt.X(
+            "OFFENSE_CODE_GROUP:N",
+            title="Offense Type",
+            axis=alt.Axis(labelAngle=-45, grid=False),
+        ),
+        y=alt.Y(
+            "neighborhood:N",
+            title="",
+            sort=nbhd_sev_order,
+            axis=alt.Axis(grid=False),
+        ),
+        color=alt.Color(
+            "count:Q", scale=alt.Scale(scheme="blues"), title="Incidents"
+        ),
+        tooltip=[
+            alt.Tooltip("neighborhood:N", title="Neighborhood"),
+            alt.Tooltip("OFFENSE_CODE_GROUP:N", title="Offense Type"),
+            alt.Tooltip("count:Q", title="Incidents", format=","),
+        ],
+    )
+    .properties(height=560)
+)
 
-    month_col = next((c for c in merged.columns if c.upper() == "MONTH"), None)
-    if year_col and month_col:
-        st.write("Crime count by year and month")
-        tm = merged[[year_col, month_col]].dropna()
-        tm = tm[year_col].astype(int).astype(str) + "-" + tm[month_col].astype(int).astype(str).str.zfill(2)
-        time_counts = (
-            tm.value_counts().sort_index()
-            .rename_axis("Year-Month").reset_index(name="Count")
-        )
-        st.line_chart(time_counts.set_index("Year-Month"))
-    elif year_col:
-        st.write("Crime count by year")
-        year_counts = (
-            merged[year_col].dropna().value_counts().sort_index()
-            .rename_axis("Year").reset_index(name="Count")
-        )
-        st.bar_chart(year_counts.set_index("Year"))
+st.altair_chart(heatmap, use_container_width=True)
 
-# ── Census tab ───────────────────────────────────────────────────────────────────
+# ── Section 7: Demographics ───────────────────────────────────────────────────
 
-with census_tab:
-    census_tables = {}
-    load_errors = []
+st.markdown("---")
+st.markdown("## Does demographics predict crime?")
+st.markdown(
+    "Explore how neighborhood characteristics relate to crime rates. "
+    "Bubble size represents population. Click a bubble to highlight that neighborhood."
+)
 
-    with st.spinner("Loading census tables..."):
-        for name, loader in CENSUS_LOADERS.items():
-            try:
-                census_tables[name] = loader()
-            except Exception as e:
-                load_errors.append((name, str(e)))
+DEMO_CONFIGS = [
+    ("median_hh_income",  "Median Household Income", "$,.0f"),
+    ("poverty_rate",      "Poverty Rate",             ".1%"),
+    ("pct_bachelors_plus","% Bachelor's Degree+",     ".1%"),
+    ("pct_less_than_hs",  "% Less than High School",  ".1%"),
+    ("pct_white",         "% White",                  ".1%"),
+    ("pct_black",         "% Black",                  ".1%"),
+    ("pct_hispanic",      "% Hispanic",               ".1%"),
+    ("median_age",        "Median Age",               ".1f"),
+]
 
-    if load_errors:
-        for name, err in load_errors:
-            st.warning(f"{name} failed to load: {err}")
+demo_choice = st.selectbox(
+    "Demographic variable",
+    [lbl for _, lbl, _ in DEMO_CONFIGS],
+    key="demo_choice",
+)
+demo_col_name, demo_label, demo_fmt = next(
+    (c, l, f) for c, l, f in DEMO_CONFIGS if l == demo_choice
+)
 
-    st.success(f"Loaded {len(census_tables)}/{len(CENSUS_LOADERS)} census tables.")
+def _first_mode(s):
+    m = s.dropna().mode()
+    return m.iloc[0] if len(m) > 0 else None
 
-    # Head preview of every table
-    st.subheader("Table previews (first 3 rows each)")
-    for name, df in census_tables.items():
-        st.caption(f"**{name}** — {len(df)} neighborhoods, {df.shape[1]} cols")
-        st.dataframe(df.head(3))
+_nbhd_grp = df[df["neighborhood"].notna()].groupby("neighborhood")
+nbhd_demo = (
+    _nbhd_grp["INCIDENT_NUMBER"].count().rename("crime_count").reset_index()
+)
+nbhd_demo["total_pop"] = _nbhd_grp["total_pop"].agg(_first_mode).values
+for _dc, _, _ in DEMO_CONFIGS:
+    if _dc in df.columns:
+        nbhd_demo[_dc] = _nbhd_grp[_dc].agg(_first_mode).values
 
-    # Full table explorer
-    st.subheader("Explore a census table (full)")
-    selected = st.selectbox("Table", options=list(census_tables.keys()))
-    if selected:
-        st.dataframe(census_tables[selected])
+nbhd_demo["crime_rate_per_1k"] = (
+    nbhd_demo["crime_count"] / nbhd_demo["total_pop"] * 1000
+)
+nbhd_demo = nbhd_demo.dropna(
+    subset=[demo_col_name, "crime_rate_per_1k", "total_pop"]
+)
 
-    # Neighborhood summary — key metrics merged into one table
-    st.subheader("Neighborhood Summary (key metrics)")
+nbhd_sel = alt.selection_point(fields=["neighborhood"])
 
-    def _pick(table, cols):
-        if table in census_tables:
-            return census_tables[table][["neighborhood"] + cols]
-        return None
+bubble_points = (
+    alt.Chart(nbhd_demo)
+    .mark_circle(stroke="#fff", strokeWidth=1.5)
+    .encode(
+        x=alt.X(
+            f"{demo_col_name}:Q",
+            title=demo_label,
+            axis=alt.Axis(format=demo_fmt, grid=False),
+        ),
+        y=alt.Y(
+            "crime_rate_per_1k:Q",
+            title="Incidents / 1,000 residents",
+            axis=alt.Axis(grid=False),
+        ),
+        size=alt.Size(
+            "total_pop:Q", scale=alt.Scale(range=[60, 1800]), legend=None
+        ),
+        color=alt.condition(
+            nbhd_sel,
+            alt.Color(
+                "crime_rate_per_1k:Q",
+                scale=alt.Scale(scheme="reds"),
+                legend=None,
+            ),
+            alt.value("#d4d4d4"),
+        ),
+        opacity=alt.condition(nbhd_sel, alt.value(0.92), alt.value(0.35)),
+        tooltip=[
+            alt.Tooltip("neighborhood:N", title="Neighborhood"),
+            alt.Tooltip(f"{demo_col_name}:Q", title=demo_label, format=demo_fmt),
+            alt.Tooltip("crime_rate_per_1k:Q", title="Incidents / 1k", format=".1f"),
+            alt.Tooltip("total_pop:Q", title="Population", format=","),
+        ],
+    )
+    .add_params(nbhd_sel)
+)
 
-    summary = _pick("Per Capita Income", ["total_pop", "per_capita_income"])
-    for tbl, cols in [
-        ("Household Income",        ["median_hh_income"]),
-        ("Age",                     ["median_age"]),
-        ("Poverty Rates",           ["poverty_rate"]),
-        ("Educational Attainment",  ["pct_bachelors_plus", "pct_less_than_hs"]),
-        ("Race & Ethnicity",        ["pct_white", "pct_black", "pct_hispanic", "pct_asian"]),
-        ("Labor Force",             ["labor_force_participation_rate", "employment_rate"]),
-        ("Vehicles per Household",  ["pct_0_vehicles"]),
-        ("Nativity",                ["pct_not_citizen"]),
-    ]:
-        piece = _pick(tbl, cols)
-        if piece is not None and summary is not None:
-            summary = summary.merge(piece, on="neighborhood", how="left")
+bubble_labels = (
+    alt.Chart(nbhd_demo)
+    .mark_text(align="left", dx=7, dy=-3, fontSize=10, color="#555")
+    .encode(
+        x=alt.X(f"{demo_col_name}:Q"),
+        y=alt.Y("crime_rate_per_1k:Q"),
+        text=alt.Text("neighborhood:N"),
+        opacity=alt.condition(nbhd_sel, alt.value(0.85), alt.value(0.18)),
+    )
+)
 
-    if summary is not None:
-        st.dataframe(summary.set_index("neighborhood"))
+demo_chart = (
+    (bubble_points + bubble_labels)
+    .properties(
+        height=460,
+        title=f"{demo_label} vs. Crime Rate by Neighborhood",
+    )
+)
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("Per capita income by neighborhood")
-            st.bar_chart(summary.set_index("neighborhood")["per_capita_income"])
-        with col2:
-            st.write("Poverty rate by neighborhood")
-            st.bar_chart(summary.set_index("neighborhood")["poverty_rate"])
-
-        col3, col4 = st.columns(2)
-        with col3:
-            st.write("% Bachelor's degree or higher")
-            st.bar_chart(summary.set_index("neighborhood")["pct_bachelors_plus"])
-        with col4:
-            st.write("Median age by neighborhood")
-            st.bar_chart(summary.set_index("neighborhood")["median_age"])
+st.altair_chart(demo_chart, use_container_width=True)
