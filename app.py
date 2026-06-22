@@ -680,6 +680,8 @@ st.altair_chart(severity_chart, use_container_width=True)
 st.markdown("---")
 st.markdown("## Does demographics predict crime?")
 st.markdown(
+    "Unlike the sections above, this chart focuses exclusively on **serious and non-violent crime** "
+    "— non-criminal calls and unclassified incidents are excluded so the rate reflects actual criminal activity. "
     "Bubble size = population. **Hover over a bubble** to see neighborhood details. "
     "Scroll to zoom, click and drag to pan."
 )
