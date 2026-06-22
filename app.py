@@ -621,7 +621,7 @@ else:
 # ── Section 5: Severity by neighborhood (top 12) ──────────────────────────────
 
 st.markdown("---")
-st.markdown("## How serious is crime by neighborhood?")
+st.markdown("## How serious are incidents by neighborhood?")
 st.markdown(
     "Top 12 neighborhoods by total incident volume, sorted by serious crime count. "
     "**Click a legend item** to isolate a severity."
