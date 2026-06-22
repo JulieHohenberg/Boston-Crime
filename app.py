@@ -200,9 +200,9 @@ st.markdown(
 # ── Sticky metric bar ─────────────────────────────────────────────────────────
 
 _bar = (
-    "position:fixed;top:3.5rem;left:0;right:0;z-index:998;"
+    "position:sticky;top:3.5rem;z-index:998;"
     "background:white;display:flex;align-items:center;gap:1rem;"
-    "padding:0.45rem 2rem 0.45rem 22rem;"
+    "padding:0.45rem 0;"
     "box-shadow:0 2px 14px rgba(0,0,0,0.09);"
 )
 _sl = "font-size:0.58rem;text-transform:uppercase;letter-spacing:0.09em;color:#718096;margin-bottom:0.1rem;"
@@ -233,7 +233,6 @@ st.markdown(
         <div style="{_sv}">{_noncrim_pct}</div>
       </div>
     </div>
-    <div style="height:4rem;"></div>
     """,
     unsafe_allow_html=True,
 )
