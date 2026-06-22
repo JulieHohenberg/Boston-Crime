@@ -7,6 +7,7 @@ import pandas as pd
 import pydeck as pdk
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ── Page config ───────────────────────────────────────────────────────────────
 
@@ -83,8 +84,6 @@ st.markdown(
     section[data-testid="stSidebar"] [data-baseweb="tag"] {background:white !important;}
     section[data-testid="stSidebar"] [data-baseweb="tag"] span {color:black !important;}
     section[data-testid="stSidebar"] [data-baseweb="select"] input {color:white !important;}
-    section[data-testid="stMain"] {overflow: visible !important;}
-    div[data-testid="stMainBlockContainer"] {overflow: visible !important;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -199,45 +198,65 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Sticky metric bar ─────────────────────────────────────────────────────────
+# ── Metric bar (inline + fixed-on-scroll) ────────────────────────────────────
 
-_bar = (
-    "position:sticky;top:3.5rem;z-index:998;"
-    "background:white;display:flex;align-items:center;gap:1rem;"
-    "padding:0.45rem 0;"
-    "box-shadow:0 2px 14px rgba(0,0,0,0.09);"
-)
 _sl = "font-size:0.58rem;text-transform:uppercase;letter-spacing:0.09em;color:#718096;margin-bottom:0.1rem;"
 _sv = "font-size:1.05rem;font-weight:700;color:#1a202c;line-height:1.2;"
 _sc = "flex:1;background:white;border-radius:8px;padding:0.5rem 0.9rem;box-shadow:0 1px 6px rgba(0,0,0,0.08);"
 
+_metrics_cards = f"""
+  <div style="{_sc}border-top:3px solid #4a90d9;">
+    <div style="{_sl}">Incidents in View</div>
+    <div style="{_sv}">{_n:,}</div>
+  </div>
+  <div style="{_sc}border-top:3px solid #4a90d9;">
+    <div style="{_sl}">Most Common Type</div>
+    <div style="{_sv};font-size:0.88rem;">{_top_type}</div>
+  </div>
+  <div style="{_sc}border-top:3px solid #e31a1c;">
+    <div style="{_sl}">Serious Crime</div>
+    <div style="{_sv}">{_serious_pct}</div>
+  </div>
+  <div style="{_sc}border-top:3px solid #f9a825;">
+    <div style="{_sl}">Non-Violent Crime</div>
+    <div style="{_sv}">{_nonviolent_pct}</div>
+  </div>
+  <div style="{_sc}border-top:3px solid #4daf4a;">
+    <div style="{_sl}">Non-Criminal</div>
+    <div style="{_sv}">{_noncrim_pct}</div>
+  </div>
+"""
+
+_inline_style = "display:flex;align-items:center;gap:1rem;padding:0.6rem 0;"
+_fixed_style = (
+    "position:fixed;top:3.5rem;left:0;right:0;z-index:998;display:none;"
+    "align-items:center;gap:1rem;padding:0.45rem 2rem 0.45rem 22rem;"
+    "background:white;box-shadow:0 2px 14px rgba(0,0,0,0.12);"
+)
+
 st.markdown(
-    f"""
-    <div style="{_bar}">
-      <div style="{_sc}border-top:3px solid #4a90d9;">
-        <div style="{_sl}">Incidents in View</div>
-        <div style="{_sv}">{_n:,}</div>
-      </div>
-      <div style="{_sc}border-top:3px solid #4a90d9;">
-        <div style="{_sl}">Most Common Type</div>
-        <div style="{_sv};font-size:0.88rem;">{_top_type}</div>
-      </div>
-      <div style="{_sc}border-top:3px solid #e31a1c;">
-        <div style="{_sl}">Serious Crime</div>
-        <div style="{_sv}">{_serious_pct}</div>
-      </div>
-      <div style="{_sc}border-top:3px solid #f9a825;">
-        <div style="{_sl}">Non-Violent Crime</div>
-        <div style="{_sv}">{_nonviolent_pct}</div>
-      </div>
-      <div style="{_sc}border-top:3px solid #4daf4a;">
-        <div style="{_sl}">Non-Criminal</div>
-        <div style="{_sv}">{_noncrim_pct}</div>
-      </div>
-    </div>
-    """,
+    f'<div id="metrics-fixed" style="{_fixed_style}">{_metrics_cards}</div>'
+    f'<div id="metrics-inline" style="{_inline_style}">{_metrics_cards}</div>',
     unsafe_allow_html=True,
 )
+
+components.html("""
+<script>
+(function() {
+    function setup() {
+        var doc = window.parent.document;
+        var fixed = doc.getElementById('metrics-fixed');
+        var inline = doc.getElementById('metrics-inline');
+        if (!fixed || !inline) { setTimeout(setup, 150); return; }
+        var observer = new IntersectionObserver(function(entries) {
+            fixed.style.display = entries[0].isIntersecting ? 'none' : 'flex';
+        }, { rootMargin: '-60px 0px 0px 0px', threshold: 0 });
+        observer.observe(inline);
+    }
+    setup();
+})();
+</script>
+""", height=0, scrolling=False)
 
 # ── Section 1: Monthly volume trend ──────────────────────────────────────────
 
