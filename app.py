@@ -11,7 +11,7 @@ import streamlit as st
 # ── Page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Boston Crime",
+    page_title="Boston Police Incidents",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -185,7 +185,7 @@ st.markdown(
     <div class="hero">
       <div class="hero-overlay"></div>
       <div class="hero-inner">
-        <div class="hero-title">Boston Crime</div>
+        <div class="hero-title">Boston Police Incidents</div>
         <p class="hero-sub">Where, When, &amp; Why?</p>
       </div>
       <div style="position:absolute;bottom:2rem;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:0.15rem;z-index:1;">
