@@ -83,6 +83,8 @@ st.markdown(
     section[data-testid="stSidebar"] [data-baseweb="tag"] {background:white !important;}
     section[data-testid="stSidebar"] [data-baseweb="tag"] span {color:black !important;}
     section[data-testid="stSidebar"] [data-baseweb="select"] input {color:white !important;}
+    section[data-testid="stMain"] {overflow: visible !important;}
+    div[data-testid="stMainBlockContainer"] {overflow: visible !important;}
     </style>
     """,
     unsafe_allow_html=True,
