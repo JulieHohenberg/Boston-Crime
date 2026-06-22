@@ -544,7 +544,7 @@ st.altair_chart(
 # ── Section 4: Map ────────────────────────────────────────────────────────────
 
 st.markdown("---")
-st.markdown("## Where does crime happen?")
+st.markdown("## Where do incidents happen?")
 st.markdown(
     "Use the **Year**, **Severity**, and **Offense Type** filters in the sidebar to control what appears on the map. "
     "Narrow by time of day or day of week below."
