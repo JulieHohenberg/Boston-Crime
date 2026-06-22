@@ -201,33 +201,34 @@ st.markdown(
 
 _bar = (
     "position:fixed;top:3.5rem;left:0;right:0;z-index:998;"
-    "background:#1a202c;display:flex;align-items:center;gap:0;"
+    "background:white;display:flex;align-items:center;gap:1rem;"
     "padding:0.45rem 2rem 0.45rem 22rem;"
-    "box-shadow:0 2px 10px rgba(0,0,0,0.5);"
+    "box-shadow:0 2px 14px rgba(0,0,0,0.09);"
 )
-_sl = "font-size:0.58rem;text-transform:uppercase;letter-spacing:0.09em;color:#a0aec0;margin-bottom:0.1rem;"
-_sv = "font-size:1.05rem;font-weight:700;color:white;line-height:1.2;"
+_sl = "font-size:0.58rem;text-transform:uppercase;letter-spacing:0.09em;color:#718096;margin-bottom:0.1rem;"
+_sv = "font-size:1.05rem;font-weight:700;color:#1a202c;line-height:1.2;"
+_sc = "flex:1;background:white;border-radius:8px;padding:0.5rem 0.9rem;box-shadow:0 1px 6px rgba(0,0,0,0.08);"
 
 st.markdown(
     f"""
     <div style="{_bar}">
-      <div style="flex:1;padding:0 1.2rem 0 0.8rem;border-left:3px solid #4a90d9;border-right:1px solid #4a5568;">
+      <div style="{_sc}border-top:3px solid #4a90d9;">
         <div style="{_sl}">Incidents in View</div>
         <div style="{_sv}">{_n:,}</div>
       </div>
-      <div style="flex:2;padding:0 1.2rem 0 1.2rem;border-right:1px solid #4a5568;">
+      <div style="{_sc}border-top:3px solid #4a90d9;">
         <div style="{_sl}">Most Common Type</div>
         <div style="{_sv};font-size:0.88rem;">{_top_type}</div>
       </div>
-      <div style="flex:1;padding:0 1.2rem 0 1.2rem;border-left:3px solid #e31a1c;border-right:1px solid #4a5568;">
+      <div style="{_sc}border-top:3px solid #e31a1c;">
         <div style="{_sl}">Serious Crime</div>
         <div style="{_sv}">{_serious_pct}</div>
       </div>
-      <div style="flex:1;padding:0 1.2rem 0 1.2rem;border-left:3px solid #f9a825;border-right:1px solid #4a5568;">
+      <div style="{_sc}border-top:3px solid #f9a825;">
         <div style="{_sl}">Non-Violent Crime</div>
         <div style="{_sv}">{_nonviolent_pct}</div>
       </div>
-      <div style="flex:1;padding:0 0 0 1.2rem;border-left:3px solid #4daf4a;">
+      <div style="{_sc}border-top:3px solid #4daf4a;">
         <div style="{_sl}">Non-Criminal</div>
         <div style="{_sv}">{_noncrim_pct}</div>
       </div>
