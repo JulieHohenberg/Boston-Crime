@@ -710,7 +710,8 @@ def _first_mode(s):
     return m.iloc[0] if len(m) > 0 else None
 
 
-_grp = df[df["neighborhood"].notna()].groupby("neighborhood")
+_CRIME_ONLY = {"Serious Crime", "Non-Violent Crime"}
+_grp = df[df["neighborhood"].notna() & df["UCR_PART"].isin(_CRIME_ONLY)].groupby("neighborhood")
 nbhd_demo = _grp["INCIDENT_NUMBER"].count().rename("crime_count").reset_index()
 nbhd_demo["total_pop"] = _grp["total_pop"].agg(_first_mode).values
 for _dc, _, _ in DEMO_CONFIGS:
@@ -733,7 +734,7 @@ bubble_pts = (
         ),
         y=alt.Y(
             "crime_rate_per_1k:Q",
-            title="Incidents / 1,000 residents",
+            title="Crimes / 1,000 residents",
             axis=alt.Axis(grid=False),
         ),
         size=alt.Size(
@@ -749,7 +750,7 @@ bubble_pts = (
         tooltip=[
             alt.Tooltip("neighborhood:N", title="Neighborhood"),
             alt.Tooltip(f"{demo_col_name}:Q", title=demo_label, format=demo_fmt),
-            alt.Tooltip("crime_rate_per_1k:Q", title="Incidents / 1k", format=".1f"),
+            alt.Tooltip("crime_rate_per_1k:Q", title="Crimes / 1k", format=".1f"),
             alt.Tooltip("total_pop:Q", title="Population", format=","),
         ],
     )
@@ -768,7 +769,7 @@ bubble_lbl = (
 
 bubble_chart = (bubble_pts + bubble_lbl).properties(
     height=500,
-    title=f"{demo_label} vs. Crime Rate by Neighborhood",
+    title=f"{demo_label} vs. Crime Rate by Neighborhood (serious & non-violent only)",
 )
 
 st.altair_chart(bubble_chart, use_container_width=True)
